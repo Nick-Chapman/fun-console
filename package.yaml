@@ -1,0 +1,31 @@
+name:                fun-console
+version:             0.1.0.0
+description:         Functional language console. Example of using haskeline & Earley parsing.
+license:             BSD3
+author:              Nick Chapman
+maintainer:          nic@amadido.co.uk
+github:              https://github.com/Nick-Chapman/fun-console.git
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+dependencies:
+- ansi-terminal
+- base >= 4.7 && < 5
+- containers
+- extra
+- haskeline
+- transformers
+- EarleyM
+
+ghc-options:
+- -Wall
+- -threaded
+- -rtsopts
+- -with-rtsopts=-N
+
+executables:
+  fun-console-exe:
+    main:                Main.hs
+    source-dirs:         app
