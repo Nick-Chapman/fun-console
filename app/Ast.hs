@@ -21,6 +21,8 @@ data Exp
     | EApp Exp Exp
     | ENum Int
     | EAdd Exp Exp
+    | EStr String
+    | EHat Exp Exp
 
 -- simple, fully parenthesized, pretty-printer
 instance Show Exp where
@@ -28,19 +30,23 @@ instance Show Exp where
         \case
             EConst v -> "(" ++ show v ++ ")"
             EVar s -> s
-            ENum i -> show i
             EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
             ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
+            ENum i -> show i
             EAdd e1 e2 -> "(" ++ show e1 ++ "+" ++ show e2 ++ ")"
+            EStr s -> show s
+            EHat e1 e2 -> "(" ++ show e1 ++ "^" ++ show e2 ++ ")"
 
 data Value
     = VNum Int
+    | VStr String
     | VFun String Exp Env
     | VError String
 
 instance Show Value where
     show = \case
         VNum i -> show i
+        VStr s -> show s
         VFun _ _ _ -> "<closure>"
         VError s -> "error: " <> s
 

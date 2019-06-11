@@ -52,8 +52,13 @@ lang = do
 
     let formals = parseListSep formal ws1
 
-    let base = alts [fmap Ast.ENum digits,
-                     fmap Ast.EVar ident]
+
+    let num = fmap Ast.ENum digits
+    let var = fmap Ast.EVar ident
+
+    let dq = symbol '"'
+    let notdq = sat (/= '"')
+    let stringLit = do dq; cs <- many notdq; dq; return $ Ast.EStr cs
 
     let parenthesized p = do symbol '('; ws; x <- p; ws; symbol ')'; return x
 
@@ -69,6 +74,11 @@ lang = do
             b <- right
             return (f a b)
 
+    let makeBinop a b = alts [
+            mkBin Ast.EAdd '+' a b,
+            mkBin Ast.EHat '^' a b
+            ]
+
     let mkLam exp = do
             symbol '\\'
             ws; xs <- formals
@@ -79,25 +89,27 @@ lang = do
 
     (exp',exp) <- declare "exp"
 
-    let par = parenthesized exp
     let lam = mkLam exp
 
-    -- application: juxta position; but whitespace is required for base@base
+    let open = alts [num,var] -- requiring whitespace to avoid juxta-collision
+    let closed = alts [parenthesized exp, stringLit]
+
+    -- application: juxta position; but whitespace is required for open@open
     (app',app) <- declare "app"
     produce app' $ alts [
-        mkApp (alts [base,par,app])    ws1     (alts [base,par]),
-        mkApp (alts [base,par,app])    eps     (alts [     par]),
-        mkApp (alts [     par    ])    eps     (alts [base    ])
+        mkApp (alts [open,closed,app])    ws1     (alts [open,closed]),
+        mkApp (alts [open,closed,app])    eps     (alts [     closed]),
+        mkApp (alts [     closed    ])    eps     (alts [open    ])
         ]
 
-    let app_lam = mkApp (alts [base,par,app]) ws lam
+    let app_lam = mkApp (alts [open,closed,app]) ws lam
 
     -- left associative operators
     (opl',opl) <- declare "opl"
-    produce opl' $ mkBin Ast.EAdd '+' (alts [base,par,app,opl]) (alts [base,par,app])
-    let opl_lam  = mkBin Ast.EAdd '+' (alts [base,par,app,opl]) lam
+    produce opl' $ makeBinop (alts [open,closed,app,opl]) (alts [open,closed,app])
+    let opl_lam  = makeBinop (alts [open,closed,app,opl]) lam
 
-    produce exp' $ alts [base,par,lam,app,opl, app_lam, opl_lam]
+    produce exp' $ alts [open,closed,lam,app,opl, app_lam, opl_lam]
 
     let def = do
             name <- formal
