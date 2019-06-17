@@ -43,6 +43,8 @@ lang = do
 
     let ident = do x <- alpha; xs <- many (alts [alpha,numer,prime]); return (x : xs)
 
+    let keyword string = mapM_ symbol string
+
     let ws = skipWhile white -- white*
     let ws1 = do white; ws -- white+
     let eps = return ()
@@ -91,6 +93,15 @@ lang = do
 
     let lam = mkLam exp
 
+    let letSyntax = do
+            keyword "let"
+            ws; x <- formal
+            ws; symbol '='
+            ws; defined <- exp
+            ws; keyword "in"
+            ws; body <- exp
+            return $ Ast.ELet x defined body
+
     let open = alts [num,var] -- requiring whitespace to avoid juxta-collision
     let closed = alts [parenthesized exp, stringLit]
 
@@ -109,7 +120,7 @@ lang = do
     produce opl' $ makeBinop (alts [open,closed,app,opl]) (alts [open,closed,app])
     let opl_lam  = makeBinop (alts [open,closed,app,opl]) lam
 
-    produce exp' $ alts [open,closed,lam,app,opl, app_lam, opl_lam]
+    produce exp' $ alts [open,closed,lam,app,opl, app_lam, opl_lam, letSyntax]
 
     let def = do
             name <- formal

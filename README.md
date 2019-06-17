@@ -24,7 +24,7 @@ For convenience the persistent .history file is reloaded on startup, and can be 
 - multi-var abstractions: `\a b c. E`
 - infix op: `a + b + c`
 - built in numbers: `42`
-- top-level defs: id = `\x.x`
+- top-level defs: `id = `\x.x`
 - allowing params: `twice f x = f (f x)`
 
 The syntax is flexible when passing lambdas as function args, making the following example perfectly legal.
@@ -32,8 +32,6 @@ The syntax is flexible when passing lambdas as function args, making the followi
     num = y \num p. p 1 \b h. dub (num h) + b 0 1
 
 The lambda bodies extend as far to the right as possible. The reduction in required parenthesis being rather nice I think.
-
-
 
 There are sample programs in the `fun/` subdir. To play, copy or cut and paste the file into .history before starting the console.
 
@@ -54,3 +52,37 @@ This example goes a step further and defines the numerics using binary rather th
 
     $ cp fun/binary.fun .history
     $ stack run
+
+
+#### Let syntax (example of an ambiguous grammar)
+
+We have support for let syntax: `let X = EXP in EXP`, using `let` and `in` as keywords. However, `let` and `in` also remain legal as identifiers. This makes our grammar rather ambiguous. We use brackets to select the interpretation when we need to:
+
+    > let x = 1 + 2 in x + x
+    parse error: AmbiguityError (Ambiguity "<start>" 0 18) : let x = 1 + 2 in x + x
+
+This is probably the interpretation we intended:
+
+    > (let x = 1 + 2 in x + x)
+    6
+
+As opposed to this one, which defines `let` as a function of `x`, with a silly expression body which tries to apply the literal `2` as a function, and also references the undefined identifier `in`:
+
+    > let x = (1 + 2 in x + x)
+    > let
+    <closure> (adds:0, hats:0, apps:0)
+    > let 1
+    eval error: cant apply a number as a function (adds:0, hats:0, apps:1)
+
+
+Here is a more sensible example of using the let-syntax. No ambiguity issues here:
+
+    > f x = let y = x + x in y + y
+    > f 100
+    400
+
+Alternatively, we can rewrite the above function `f` using `let` and `in` for bound variables instead of `x` and `y`. Everything still works. Wild!
+
+    > f let = let in = let + let in in + in
+    > f 100
+    400

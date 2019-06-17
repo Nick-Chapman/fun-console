@@ -50,6 +50,8 @@ eval env =
             v1 <- eval env e1
             v2 <- eval env e2
             hatV v1 v2
+        ELet x e1 e2 ->
+            eval env (EApp (ELam x e2) e1)
 
 apply :: Value -> (Exp,Env) -> Count Value
 apply = \case
