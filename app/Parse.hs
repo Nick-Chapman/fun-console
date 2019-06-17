@@ -4,6 +4,7 @@
 
 module Parse(parseDef) where
 
+import Control.Monad(mfilter)
 import Prelude hiding (exp, fail, lookup, pred)
 
 import qualified Data.Char as Char
@@ -23,6 +24,10 @@ parseDef s =
             Left pe -> Left $ show pe
             Right exp -> return exp
 
+keywords :: [String] -- which are not allowed as identifiers
+--keywords = ["let","in"]
+keywords = []
+
 lang :: Lang Char (Gram (Either Def Exp))
 lang = do
 
@@ -41,7 +46,8 @@ lang = do
         do n <- digits; d <- digit; return (10 * n + d),
         digit]
 
-    let ident = do x <- alpha; xs <- many (alts [alpha,numer,prime]); return (x : xs)
+    let ident0 = do x <- alpha; xs <- many (alts [alpha,numer,prime]); return (x : xs)
+    let ident = mfilter (`notElem` keywords) ident0
 
     let keyword string = mapM_ symbol string
 
