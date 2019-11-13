@@ -20,6 +20,7 @@ dependencies:
 - EarleyM
 
 ghc-options:
+- -Werror
 - -Wall
 - -threaded
 - -rtsopts

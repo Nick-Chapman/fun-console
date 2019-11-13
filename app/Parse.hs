@@ -84,6 +84,7 @@ lang = do
 
     let makeBinop a b = alts [
             mkBin Ast.EAdd '+' a b,
+            mkBin Ast.ESub '-' a b,
             mkBin Ast.EHat '^' a b
             ]
 

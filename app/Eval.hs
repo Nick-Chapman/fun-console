@@ -16,16 +16,20 @@ type Count a = State Counts a
 data Counts =
     Counts
         { adds :: Int
+        , subs :: Int
         , hats :: Int
         , apps :: Int
         }
 
 count0 :: Counts
-count0 = Counts { adds = 0, hats = 0, apps = 0 }
+count0 = Counts { adds = 0, subs = 0, hats = 0, apps = 0 }
 
 instance Show Counts where
-    show Counts {adds,hats,apps} =
-        " (adds:" <> show adds <> ", hats:" <> show hats <> ", apps:" <> show apps <> ")"
+    show Counts {adds,subs,hats,apps} =
+        " (adds:" <> show adds <>
+        ", subs:" <> show subs <>
+        ", hats:" <> show hats <>
+        ", apps:" <> show apps <> ")"
 
 -- Normal order evaluation
 eval :: Env -> Exp -> Count Value
@@ -45,6 +49,10 @@ eval env =
             v1 <- eval env e1
             v2 <- eval env e2
             addV v1 v2
+        ESub e1 e2 -> do
+            v1 <- eval env e1
+            v2 <- eval env e2
+            subV v1 v2
         EStr s -> return $ VStr s
         EHat e1 e2 -> do
             v1 <- eval env e1
@@ -75,6 +83,18 @@ addV v1 v2 = do
         Right (n1,n2) -> do trackAdd; return $ VNum $ n1+n2
   where
     trackAdd = modify $ \c -> c {adds = adds c + 1}
+
+subV :: Value -> Value -> Count Value
+subV v1 v2 = do
+    let maybeSub = do
+            n1 <- getNum "sub-arg-1" v1
+            n2 <- getNum "sub-arg-2" v2
+            return (n1,n2)
+    case maybeSub of
+        Left s -> return $ VError s
+        Right (n1,n2) -> do trackSub; return $ VNum $ n1-n2
+  where
+    trackSub = modify $ \c -> c {subs = subs c + 1}
 
 hatV :: Value -> Value -> Count Value
 hatV v1 v2 = do

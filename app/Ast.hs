@@ -21,6 +21,7 @@ data Exp
     | EApp Exp Exp
     | ENum Int
     | EAdd Exp Exp
+    | ESub Exp Exp
     | EStr String
     | EHat Exp Exp
     | ELet String Exp Exp
@@ -35,6 +36,7 @@ instance Show Exp where
             ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
             ENum i -> show i
             EAdd e1 e2 -> "(" ++ show e1 ++ "+" ++ show e2 ++ ")"
+            ESub e1 e2 -> "(" ++ show e1 ++ "+" ++ show e2 ++ ")"
             EStr s -> show s
             EHat e1 e2 -> "(" ++ show e1 ++ "^" ++ show e2 ++ ")"
             ELet x e1 e2 -> "(let " ++ show x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
