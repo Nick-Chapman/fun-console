@@ -19,9 +19,22 @@ dependencies:
 - transformers
 - EarleyM
 
+default-extensions:
+- GADTs
+- GeneralizedNewtypeDeriving
+- InstanceSigs
+- LambdaCase
+- MultiWayIf
+- NamedFieldPuns
+- NondecreasingIndentation
+- NumericUnderscores
+- RankNTypes
+- ScopedTypeVariables
+
 ghc-options:
 - -Werror
 - -Wall
+- -Wno-name-shadowing
 - -threaded
 - -rtsopts
 - -with-rtsopts=-N

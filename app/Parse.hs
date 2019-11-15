@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE InstanceSigs #-}
 
 module Parse(parseDef) where
 
@@ -13,16 +10,16 @@ import EarleyM (Gram,Lang,fail,alts,fix,produce,declare,getToken,many,skipWhile)
 import qualified EarleyM as EM(parse,Parsing(..))
 
 import Ast(Exp,Def)
-import qualified Ast(Exp(..),Def(..))
+import qualified Ast(Exp(..),Def(..),Base(..),Bin(..))
 
 type Hopefully = Either String
 
 parseDef :: String -> Hopefully (Either Def Exp)
 parseDef s =
-    case EM.parse lang s of
-        EM.Parsing{EM.outcome} -> case outcome of
-            Left pe -> Left $ show pe
-            Right exp -> return exp
+  case EM.parse lang s of
+    EM.Parsing{EM.outcome} -> case outcome of
+      Left pe -> Left $ show pe
+      Right exp -> return exp
 
 keywords :: [String] -- which are not allowed as identifiers
 --keywords = ["let","in"]
@@ -60,13 +57,12 @@ lang = do
 
     let formals = parseListSep formal ws1
 
-
-    let num = fmap Ast.ENum digits
+    let num = fmap (Ast.EBase . Ast.BNum) digits
     let var = fmap Ast.EVar ident
 
     let dq = symbol '"'
     let notdq = sat (/= '"')
-    let stringLit = do dq; cs <- many notdq; dq; return $ Ast.EStr cs
+    let stringLit = do dq; cs <- many notdq; dq; return $ Ast.EBase $ Ast.BStr cs
 
     let parenthesized p = do symbol '('; ws; x <- p; ws; symbol ')'; return x
 
@@ -83,9 +79,9 @@ lang = do
             return (f a b)
 
     let makeBinop a b = alts [
-            mkBin Ast.EAdd '+' a b,
-            mkBin Ast.ESub '-' a b,
-            mkBin Ast.EHat '^' a b
+            mkBin (Ast.EBin Ast.Add) '+' a b,
+            mkBin (Ast.EBin Ast.Sub) '-' a b,
+            mkBin (Ast.EBin Ast.Hat) '^' a b
             ]
 
     let mkLam exp = do

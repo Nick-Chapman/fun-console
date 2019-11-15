@@ -1,8 +1,12 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE InstanceSigs #-}
 
-module Ast(Exp(..),Def(..),Value(..),Env,env0,lookup,extend) where
+module Ast
+  ( Def(..)
+  , Exp(..)
+  , Bin(..)
+  , Value(..)
+  , Base(..)
+  , Env,env0,lookup,extend
+  ) where
 
 import Data.List(intercalate)
 import Data.Map(Map)
@@ -11,48 +15,54 @@ import Prelude hiding (exp, fail, lookup, pred)
 import qualified Data.Map as Map
 
 data Def =
-    Def String Exp
-    deriving (Show)
+  Def String Exp
+  deriving (Show)
 
 data Exp
-    = EConst Value
-    | EVar String
-    | ELam String Exp
-    | EApp Exp Exp
-    | ENum Int
-    | EAdd Exp Exp
-    | ESub Exp Exp
-    | EStr String
-    | EHat Exp Exp
-    | ELet String Exp Exp
+  = EBase Base
+  | EVar String
+  | ELam String Exp
+  | EBin Bin Exp Exp
+  | EApp Exp Exp
+  | ELet String Exp Exp
 
 -- simple, fully parenthesized, pretty-printer
 instance Show Exp where
-    show =
-        \case
-            EConst v -> "(" ++ show v ++ ")"
-            EVar s -> s
-            EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
-            ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
-            ENum i -> show i
-            EAdd e1 e2 -> "(" ++ show e1 ++ "+" ++ show e2 ++ ")"
-            ESub e1 e2 -> "(" ++ show e1 ++ "-" ++ show e2 ++ ")"
-            EStr s -> show s
-            EHat e1 e2 -> "(" ++ show e1 ++ "^" ++ show e2 ++ ")"
-            ELet x e1 e2 -> "(let " ++ show x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
+  show = \case
+    EBase v -> "(" ++ show v ++ ")"
+    EVar s -> s
+    EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
+    ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
+    EBin bin e1 e2 -> "(" ++ show e1 ++ show bin ++ show e2 ++ ")"
+    ELet x e1 e2 -> "(let " ++ show x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
+
+data Bin = Add | Sub | Hat
+
+instance Show Bin where
+  show = \case
+    Add -> "+"
+    Sub -> "-"
+    Hat -> "^"
 
 data Value
-    = VNum Int
-    | VStr String
-    | VFun String Exp Env
-    | VError String
+  = VBase Base
+  | VError String
+  | VFun String Exp Env
+
+data Base
+  = BNum Int
+  | BStr String
+
+instance Show Base where
+  show = \case
+    BNum i -> show i
+    BStr s -> show s
 
 instance Show Value where
-    show = \case
-        VNum i -> show i
-        VStr s -> show s
-        VFun _ _ _ -> "<closure>"
-        VError s -> "error: " <> s
+  show = \case
+    VBase b -> show b
+    VError s -> "error: " <> s
+    VFun _ _ _ -> "<closure>"
 
 -- Environment of thunks
 newtype Env = Env { mapping :: Map String (Exp,Env) }

@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE InstanceSigs #-}
 
 module Main (main) where
 
@@ -70,27 +67,15 @@ ep :: String -> Env -> IO (Maybe Env)
 ep line env =
     if line == ""
     then return $ Just env
-    else parseEval line env >>= \case
-        Nothing -> return Nothing
-        Just (name, v) -> do
-            let env' = extend env name (EConst v, env)
-            return $ Just env'
+    else parseEval line env
 
-parseEval :: String -> Env -> IO (Maybe (String, Value))
+parseEval :: String -> Env -> IO (Maybe Env)
 parseEval line env = do
     case parseDef line of
         Left s -> do
             putStrLn $ col Red $ "parse error: " <> s <> " : " <> line
             return Nothing
-        Right (Left (Def name exp)) -> do
-            --putStrLn $ col Cyan $ "parsed(Def): " <> show exp
-            case runState (eval env exp) count0 of
-                (VError s, c) -> do
-                    putStrLn $ col Red $ "eval error: " <> s <> show c
-                    return Nothing
-                (v, _c) -> do
-                    --putStrLn $ col Cyan $ name <> " = " <> show v <> show c
-                    return $ Just (name, v)
+        Right (Left (Def name exp)) -> return $ Just $ extend env name (exp,env)
         Right (Right exp) -> do
             --putStrLn $ col Cyan $ "parsed(Exp): " <> show exp
             case runState (eval env exp) count0 of
@@ -99,7 +84,7 @@ parseEval line env = do
                     return Nothing
                 (v, c) -> do
                     putStrLn $ col Cyan $ show v <> show c
-                    return $ Just ("it", v)
+                    return Nothing
 
 col :: Color -> String -> String
 col c s =
