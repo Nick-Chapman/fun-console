@@ -12,6 +12,7 @@ import qualified System.Console.Haskeline.History as HL
 import Ast
 import Parse
 import Eval
+import Value(Value(VError),counts0)
 
 main :: IO ()
 main = HL.runInputT haskelineSettings $ start
@@ -75,10 +76,10 @@ parseEval line env = do
         Left s -> do
             putStrLn $ col Red $ "parse error: " <> s <> " : " <> line
             return Nothing
-        Right (Left (Def name exp)) -> return $ Just $ extend env name (exp,env)
+        Right (Left (Def name exp)) -> return $ Just $ extend env name (eval env exp)
         Right (Right exp) -> do
             --putStrLn $ col Cyan $ "parsed(Exp): " <> show exp
-            case runState (eval env exp) count0 of
+            case runState (eval env exp) counts0 of
                 (VError s, c) -> do
                     putStrLn $ col Red $ "eval error: " <> s <> show c
                     return Nothing

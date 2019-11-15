@@ -1,5 +1,7 @@
 
-module Parse(parseDef) where
+module Parse(
+  parseDef
+  ) where
 
 import Control.Monad(mfilter)
 import Prelude hiding (exp, fail, lookup, pred)
@@ -10,7 +12,8 @@ import EarleyM (Gram,Lang,fail,alts,fix,produce,declare,getToken,many,skipWhile)
 import qualified EarleyM as EM(parse,Parsing(..))
 
 import Ast(Exp,Def)
-import qualified Ast(Exp(..),Def(..),Base(..),Bin(..))
+import qualified Ast(Exp(..),Def(..))
+import qualified Value (Base(..),Bin(..))
 
 type Hopefully = Either String
 
@@ -57,12 +60,12 @@ lang = do
 
     let formals = parseListSep formal ws1
 
-    let num = fmap (Ast.EBase . Ast.BNum) digits
+    let num = fmap (Ast.EBase . Value.BNum) digits
     let var = fmap Ast.EVar ident
 
     let dq = symbol '"'
     let notdq = sat (/= '"')
-    let stringLit = do dq; cs <- many notdq; dq; return $ Ast.EBase $ Ast.BStr cs
+    let stringLit = do dq; cs <- many notdq; dq; return $ Ast.EBase $ Value.BStr cs
 
     let parenthesized p = do symbol '('; ws; x <- p; ws; symbol ')'; return x
 
@@ -74,14 +77,15 @@ lang = do
 
     let mkBin f c left right = do
             a <- left
-            ws; symbol c; ws
+            ws; keyword c; ws
             b <- right
             return (f a b)
 
     let makeBinop a b = alts [
-            mkBin (Ast.EBin Ast.Add) '+' a b,
-            mkBin (Ast.EBin Ast.Sub) '-' a b,
-            mkBin (Ast.EBin Ast.Hat) '^' a b
+            mkBin (Ast.EBin Value.Add) "+" a b,
+            mkBin (Ast.EBin Value.Sub) "-" a b,
+            mkBin (Ast.EBin Value.Hat) "^" a b,
+            mkBin (Ast.EBin Value.Eqi) "==" a b
             ]
 
     let mkLam exp = do
