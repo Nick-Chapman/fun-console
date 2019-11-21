@@ -1,18 +1,18 @@
 
 module Value (
-  Counts(..), counts0,
   Value(..), Base(..),
-  Count, -- The effect! (runState to run)
   apply,
   Bin(..), binop,
+  Eff, run,
+  Counts(..)
   ) where
 
-import Control.Monad.Trans.State.Strict (State,modify)
+import Control.Monad.Trans.State.Strict (State,modify,runState)
 
 data Value
   = VBase Base
   | VError String
-  | VFun (Count Value -> Count Value)
+  | VFun (Eff Value -> Eff Value)
 
 data Base
   = BNum Int
@@ -29,7 +29,7 @@ instance Show Value where
     VError s -> "error: " <> s
     VFun _ -> "<function>"
 
-apply :: Value -> Count Value -> Count Value
+apply :: Value -> Eff Value -> Eff Value
 apply = \case
   VBase _ -> \_ -> return $ VError "cant apply a base-value as a function"
   e@(VError _) -> \_ -> return e
@@ -37,7 +37,7 @@ apply = \case
     trackApp
     f v
   where
-    trackApp = modify $ \c -> c {apps = apps c + 1}
+    trackApp = Eff $ modify $ \c -> c {apps = apps c + 1}
 
 data Bin = Add | Sub | Hat | Eqi
 
@@ -48,7 +48,7 @@ instance Show Bin where
     Hat -> "^"
     Eqi -> "=="
 
-binop :: Bin -> Value -> Value -> Count Value
+binop :: Bin -> Value -> Value -> Eff Value
 binop = \case
   Add -> doBin (getNum "+L") (getNum "+R") trackAdd (VBase . BNum . uncurry (+))
   Sub -> doBin (getNum "-L") (getNum "-R") trackSub (VBase . BNum . uncurry (-))
@@ -62,9 +62,9 @@ type Hopefully = Either String
 
 doBin :: (Value -> Hopefully a)
       -> (Value -> Hopefully b)
-      -> Count ()
+      -> Eff ()
       -> ((a,b) -> Value)
-      -> Value -> Value -> Count Value
+      -> Value -> Value -> Eff Value
 doBin get1 get2 track func = \v1 v2 -> do
   let getBoth = do
         g1 <- get1 v1
@@ -74,10 +74,10 @@ doBin get1 get2 track func = \v1 v2 -> do
     Left s -> return $ VError s
     Right (g1,g2) -> do track; return $ func (g1,g2)
 
-trackAdd, trackSub, trackHat :: Count ()
-trackAdd = modify $ \c -> c {adds = adds c + 1}
-trackSub = modify $ \c -> c {subs = subs c + 1}
-trackHat = modify $ \c -> c {hats = hats c + 1}
+trackAdd, trackSub, trackHat :: Eff ()
+trackAdd = Eff $ modify $ \c -> c {adds = adds c + 1}
+trackSub = Eff $ modify $ \c -> c {subs = subs c + 1}
+trackHat = Eff $ modify $ \c -> c {hats = hats c + 1}
 
 getNum :: String -> Value -> Hopefully Int
 getNum tag = \case
@@ -95,7 +95,11 @@ getStr tag = \case
 
 
 -- counting steps during evaluation
-type Count a = State Counts a
+newtype Eff a = Eff (State Counts a)
+  deriving (Functor,Applicative,Monad)
+
+run :: Eff a -> (a,Counts)
+run (Eff sm) = runState sm counts0
 
 data Counts = Counts
   { adds :: Int

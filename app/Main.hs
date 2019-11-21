@@ -1,18 +1,15 @@
 
 module Main (main) where
 
-import Control.Monad.Trans.State.Strict (runState)
+import Ast (Def(..))
 import Control.Monad.Trans.Class (lift)
-
-import Prelude hiding (exp, fail, lookup, pred)
-import System.Console.ANSI
+import Eval (Env)
+import Parse (parseDef)
+import Value (Value(VError))
+import qualified Eval as EV
+import qualified System.Console.ANSI as AN
 import qualified System.Console.Haskeline as HL
 import qualified System.Console.Haskeline.History as HL
-
-import Ast
-import Parse
-import Eval
-import Value(Value(VError),counts0)
 
 main :: IO ()
 main = HL.runInputT haskelineSettings $ start
@@ -21,7 +18,7 @@ start :: HL.InputT IO ()
 start = do
     history <- lift $ readHistory
     HL.putHistory history
-    env <- lift $ replay env0 (HL.historyLines history)
+    env <- lift $ replay EV.env0 (HL.historyLines history)
     repl 1 env
 
 -- keep history in opposite order from HL standard (newest at end of file)
@@ -53,15 +50,14 @@ replay env =
 -- read-eval-print-loop
 repl :: Int -> Env -> HL.InputT IO ()
 repl n env = do
-    HL.getInputLine (col Green $ show n <> "> ") >>= \case
+    HL.getInputLine (col AN.Green $ show n <> "> ") >>= \case
         Nothing -> return ()
         Just line -> do
             HL.modifyHistory (HL.addHistory line)
             HL.getHistory >>= lift . writeHistory
             lift (ep line env) >>= \case
                 Nothing -> repl n env
-                Just env' -> do
-                    repl (n + 1) env'
+                Just env' -> repl (n + 1) env'
 
 -- eval-print
 ep :: String -> Env -> IO (Maybe Env)
@@ -74,20 +70,19 @@ parseEval :: String -> Env -> IO (Maybe Env)
 parseEval line env = do
     case parseDef line of
         Left s -> do
-            putStrLn $ col Red $ "parse error: " <> s <> " : " <> line
+            putStrLn $ col AN.Red $ "parse error: " <> s <> " : " <> line
             return Nothing
-        Right (Left (Def name exp)) -> return $ Just $ extend env name (eval env exp)
+        Right (Left (Def name exp)) -> return $ Just $ EV.extend name (EV.eval exp) env
         Right (Right exp) -> do
-            --putStrLn $ col Cyan $ "parsed(Exp): " <> show exp
-            case runState (eval env exp) counts0 of
+            case EV.run env (EV.eval exp) of
                 (VError s, c) -> do
-                    putStrLn $ col Red $ "eval error: " <> s <> show c
+                    putStrLn $ col AN.Red $ "eval error: " <> s <> show c
                     return Nothing
                 (v, c) -> do
-                    putStrLn $ col Cyan $ show v <> show c
+                    putStrLn $ col AN.Cyan $ show v <> show c
                     return Nothing
 
-col :: Color -> String -> String
+col :: AN.Color -> String -> String
 col c s =
-    setSGRCode [SetColor Foreground Vivid c] <> s <>
-    setSGRCode [SetColor Foreground Vivid White]
+    AN.setSGRCode [AN.SetColor AN.Foreground AN.Vivid c] <> s <>
+    AN.setSGRCode [AN.SetColor AN.Foreground AN.Vivid AN.White]
