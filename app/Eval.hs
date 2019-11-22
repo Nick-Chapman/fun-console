@@ -6,8 +6,9 @@ module Eval (
   Eff, eval, extend, run,
   ) where
 
-import Control.Monad (ap,liftM)
+import Control.Monad (ap,liftM,join)
 import Data.Map (Map)
+import Data.IORef
 import Prelude hiding (lookup)
 import qualified Data.Map as Map
 
@@ -66,8 +67,15 @@ eval = \case
       Just v -> v
   ELam x body -> do
     env <- GetEnv
-    return $ VFun $ \v -> do
-      SetEnv (extend x v env) $ eval body
+    return $ VFun $ \arg -> do
+      r <- Io $ newIORef undefined
+      Io $ writeIORef r $ do
+        v <- arg
+        Io $ writeIORef r (return v)
+        return v
+      let arg' = join $ Io $ readIORef r
+      SetEnv (extend x arg' env) $ eval body
+
   EApp fun arg -> do
     vfun <- eval fun
     env <- GetEnv
