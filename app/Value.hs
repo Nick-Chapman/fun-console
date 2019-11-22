@@ -7,7 +7,8 @@ module Value (
   Counts(..)
   ) where
 
-import Control.Monad.Trans.State.Strict (State,modify,runState)
+--import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (StateT,modify,runStateT)
 
 data Value
   = VBase Base
@@ -35,9 +36,13 @@ apply = \case
   e@(VError _) -> \_ -> return e
   VFun f -> \v -> do
     trackApp
+    --liftIO $ putStr "@"
     f v
   where
     trackApp = Eff $ modify $ \c -> c {apps = apps c + 1}
+
+--liftIO :: IO a -> Eff a
+--liftIO io = Eff $ lift io
 
 data Bin = Add | Sub | Hat | Eqi
 
@@ -81,25 +86,25 @@ trackHat = Eff $ modify $ \c -> c {hats = hats c + 1}
 
 getNum :: String -> Value -> Hopefully Int
 getNum tag = \case
-  VBase (BNum n) -> return n
+  VBase (BNum n) -> Right n
   VBase (BStr _) -> Left $ tag <> " : expected Num, got String"
   VFun _ -> Left $ tag <> " : expected Num, got Function"
   VError s -> Left s
 
 getStr :: String -> Value -> Hopefully String
 getStr tag = \case
+  VBase (BStr s) -> Right s
   VBase (BNum _) -> Left $ tag <> " : expected String, got Num"
-  VBase (BStr s) -> return s
   VFun _ -> Left $ tag <> " : expected Str, got Function"
   VError s -> Left s
 
 
 -- counting steps during evaluation
-newtype Eff a = Eff (State Counts a)
+newtype Eff a = Eff (StateT Counts IO a)
   deriving (Functor,Applicative,Monad)
 
-run :: Eff a -> (a,Counts)
-run (Eff sm) = runState sm counts0
+run :: Eff a -> IO (a,Counts)
+run (Eff sm) = runStateT sm counts0
 
 data Counts = Counts
   { adds :: Int

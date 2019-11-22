@@ -50,8 +50,8 @@ instance Applicative Eff where pure = return; (<*>) = ap
 instance Monad Eff where return = Ret; (>>=) = Bind
 
 
-run :: Env -> Eff a -> (a, Counts)
-run env0 = Value.run . loop env0
+run :: Env -> Eff a -> IO (a, Counts)
+run env = Value.run . loop env
   where
     loop :: Env -> Eff a -> Value.Eff a
     loop env = \case

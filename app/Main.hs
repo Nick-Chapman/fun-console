@@ -74,12 +74,13 @@ parseEval line env = do
             return Nothing
         Right (Left (Def name exp)) -> return $ Just $ EV.extend name (EV.eval exp) env
         Right (Right exp) -> do
-            case EV.run env (EV.eval exp) of
-                (VError s, c) -> do
-                    putStrLn $ col AN.Red $ "eval error: " <> s <> show c
+            (value,counts) <- EV.run env $ EV.eval exp
+            case value of
+                VError s -> do
+                    putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
                     return Nothing
-                (v, c) -> do
-                    putStrLn $ col AN.Cyan $ show v <> show c
+                v -> do
+                    putStrLn $ col AN.Cyan $ show v <> show counts
                     return Nothing
 
 col :: AN.Color -> String -> String
