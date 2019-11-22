@@ -1,11 +1,9 @@
 
 module Main (main) where
 
-import Ast (Def(..))
 import Control.Monad.Trans.Class (lift)
-import Eval (Env)
+import Eval (Def(..),Env,Value(VError))
 import Parse (parseDef)
-import Value (Value(VError))
 import qualified Eval as EV
 import qualified System.Console.ANSI as AN
 import qualified System.Console.Haskeline as HL

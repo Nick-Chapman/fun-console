@@ -10,10 +10,7 @@ import qualified Data.Char as Char
 
 import EarleyM (Gram,Lang,fail,alts,fix,produce,declare,getToken,many,skipWhile)
 import qualified EarleyM as EM(parse,Parsing(..))
-
-import Ast(Exp,Def)
-import qualified Ast(Exp(..),Def(..))
-import qualified Value (Base(..),Bin(..))
+import Eval (Exp(..),Def(..),Base(..),Bin(..))
 
 type Hopefully = Either String
 
@@ -60,12 +57,12 @@ lang = do
 
     let formals = parseListSep formal ws1
 
-    let num = fmap (Ast.EBase . Value.BNum) digits
-    let var = fmap Ast.EVar ident
+    let num = fmap (EBase . BNum) digits
+    let var = fmap EVar ident
 
     let dq = symbol '"'
     let notdq = sat (/= '"')
-    let stringLit = do dq; cs <- many notdq; dq; return $ Ast.EBase $ Value.BStr cs
+    let stringLit = do dq; cs <- many notdq; dq; return $ EBase $ BStr cs
 
     let parenthesized p = do symbol '('; ws; x <- p; ws; symbol ')'; return x
 
@@ -73,7 +70,7 @@ lang = do
             e1 <- p1
             sep::Gram()
             e2 <- p2;
-            return $ Ast.EApp e1 e2
+            return $ EApp e1 e2
 
     let mkBin f c left right = do
             a <- left
@@ -82,10 +79,10 @@ lang = do
             return (f a b)
 
     let makeBinop a b = alts [
-            mkBin (Ast.EBin Value.Add) "+" a b,
-            mkBin (Ast.EBin Value.Sub) "-" a b,
-            mkBin (Ast.EBin Value.Hat) "^" a b,
-            mkBin (Ast.EBin Value.Eqi) "==" a b
+            mkBin (EBin Add) "+" a b,
+            mkBin (EBin Sub) "-" a b,
+            mkBin (EBin Hat) "^" a b,
+            mkBin (EBin Eqi) "==" a b
             ]
 
     let mkLam exp = do
@@ -94,7 +91,7 @@ lang = do
             ws; alts [symbol '.', do symbol '-'; symbol '>']
             ws;
             e <- exp
-            return $ foldr Ast.ELam e xs
+            return $ foldr ELam e xs
 
     (exp',exp) <- declare "exp"
 
@@ -107,7 +104,7 @@ lang = do
             ws; defined <- exp
             ws; keyword "in"
             ws; body <- exp
-            return $ Ast.ELet x defined body
+            return $ ELet x defined body
 
     let open = alts [num,var] -- requiring whitespace to avoid juxta-collision
     let closed = alts [parenthesized exp, stringLit]
@@ -134,7 +131,7 @@ lang = do
             args <- many $ do ws1; formal
             ws; symbol '='
             ws; body <- exp
-            return $ Ast.Def name (foldr Ast.ELam body args)
+            return $ Def name (foldr ELam body args)
 
     let top = alts [
             do d <- def; return $ Left d,
