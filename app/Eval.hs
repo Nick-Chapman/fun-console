@@ -7,8 +7,6 @@ module Eval (
   ) where
 
 import Control.Monad (ap,liftM)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT,modify,runStateT)
 import Data.Map (Map)
 import Prelude hiding (lookup)
 import qualified Data.Map as Map
@@ -67,17 +65,17 @@ eval = \case
       Nothing -> return $ VError $ "unknown var: " <> s
       Just v -> v
   ELam x body -> do
-    embed <- GetEmbed
+    env <- GetEnv
     return $ VFun $ \v -> do
-      embed $ ModEnv (extend x (Lift v)) (eval body)
+      SetEnv (extend x v env) $ eval body
   EApp fun arg -> do
     vfun <- eval fun
-    embed <- GetEmbed
-    Lift $ apply vfun (embed (eval arg))
+    env <- GetEnv
+    apply vfun (SetEnv env $ eval arg)
   EBin bin e1 e2 -> do
     v1 <- eval e1
     v2 <- eval e2
-    Lift $ binop bin v1 v2
+    binop bin v1 v2
   ELet x e1 e2 ->
     eval (EApp (ELam x e2) e1)
 
@@ -91,21 +89,21 @@ data Eff a where
   Ret :: a -> Eff a
   Bind :: Eff a -> (a -> Eff b) -> Eff b
   GetEnv :: Eff Env
-  ModEnv :: (Env -> Env) -> Eff a -> Eff a
-  Lift :: Counting a -> Eff a
-  GetEmbed :: Eff (Eff a -> Counting a)
+  SetEnv :: Env -> Eff a -> Eff a
+  Tick :: (Counts -> Counts) -> Eff ()
+  Io :: IO a -> Eff a
 
 run :: Env -> Eff a -> IO (a, Counts)
-run env = vrun . loop env
+run = loop counts0
   where
-    loop :: Env -> Eff a -> Counting a
-    loop env = \case
-      Ret x -> return x
-      Bind e f -> do v <- loop env e; loop env (f v)
-      GetEnv -> return env
-      ModEnv f e -> loop (f env) e
-      Lift c -> c
-      GetEmbed -> return (loop env)
+    loop :: Counts -> Env -> Eff a -> IO (a,Counts)
+    loop c env = \case
+      Ret x -> return (x,c)
+      Bind e f -> do (v,c) <- loop c env e; loop c env (f v)
+      GetEnv -> return (env,c)
+      SetEnv env e -> loop c env e
+      Tick f -> return ((),f c)
+      Io io -> do v <- io; return (v,c)
 
 ----------------------------------------------------------------------
 
@@ -125,7 +123,7 @@ extend k v Env{mapping} = Env $ Map.insert k v mapping
 data Value
   = VBase Base
   | VError String
-  | VFun (Counting Value -> Counting Value)
+  | VFun (Eff Value -> Eff Value)
 
 instance Show Value where
   show = \case
@@ -133,21 +131,17 @@ instance Show Value where
     VError s -> "error: " <> s
     VFun _ -> "<function>"
 
-apply :: Value -> Counting Value -> Counting Value
+apply :: Value -> Eff Value -> Eff Value
 apply = \case
   VBase _ -> \_ -> return $ VError "cant apply a base-value as a function"
   e@(VError _) -> \_ -> return e
   VFun f -> \v -> do
     trackApp
-    --liftIO $ putStr "@"
+    --Io $ putStr "@"
     f v
   where
-    trackApp = Counting $ modify $ \c -> c {apps = apps c + 1}
 
-_liftIO :: IO a -> Counting a
-_liftIO io = Counting $ lift io
-
-binop :: Bin -> Value -> Value -> Counting Value
+binop :: Bin -> Value -> Value -> Eff Value
 binop = \case
   Add -> doBin (getNum "+L") (getNum "+R") trackAdd (VBase . BNum . uncurry (+))
   Sub -> doBin (getNum "-L") (getNum "-R") trackSub (VBase . BNum . uncurry (-))
@@ -161,9 +155,9 @@ type Hopefully = Either String
 
 doBin :: (Value -> Hopefully a)
       -> (Value -> Hopefully b)
-      -> Counting ()
+      -> Eff ()
       -> ((a,b) -> Value)
-      -> Value -> Value -> Counting Value
+      -> Value -> Value -> Eff Value
 doBin get1 get2 track func = \v1 v2 -> do
   let getBoth = do
         g1 <- get1 v1
@@ -189,16 +183,11 @@ getStr tag = \case
 
 ----------------------------------------------------------------------
 
-newtype Counting a = Counting (StateT Counts IO a)
-  deriving (Functor,Applicative,Monad)
-
-trackAdd, trackSub, trackHat :: Counting ()
-trackAdd = Counting $ modify $ \c -> c {adds = adds c + 1}
-trackSub = Counting $ modify $ \c -> c {subs = subs c + 1}
-trackHat = Counting $ modify $ \c -> c {hats = hats c + 1}
-
-vrun :: Counting a -> IO (a,Counts)
-vrun (Counting sm) = runStateT sm counts0
+trackAdd, trackSub, trackHat, trackApp :: Eff ()
+trackAdd = Tick $ \c -> c {adds = adds c + 1}
+trackSub = Tick $ \c -> c {subs = subs c + 1}
+trackHat = Tick $ \c -> c {hats = hats c + 1}
+trackApp = Tick $ \c -> c {apps = apps c + 1}
 
 data Counts = Counts
   { adds :: Int
