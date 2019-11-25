@@ -2,9 +2,11 @@
 module Main (main) where
 
 import Control.Monad.Trans.Class (lift)
-import Eval (Def(..),Env,Value(VError))
+import Eval (Def(..),Value(VFun,VError),evaluate)
+import Norm (Env,normalize)
 import Parse (parseDef)
-import qualified Eval as EV
+import qualified Eval (Env,env0,extend)
+import qualified Norm (env0,define,preDefined)
 import qualified System.Console.ANSI as AN
 import qualified System.Console.Haskeline as HL
 import qualified System.Console.Haskeline.History as HL
@@ -16,7 +18,7 @@ start :: HL.InputT IO ()
 start = do
     history <- lift $ readHistory
     HL.putHistory history
-    env <- lift $ replay EV.env0 (HL.historyLines history)
+    env <- lift $ replay initialNormEnv (HL.historyLines history)
     repl 1 env
 
 -- keep history in opposite order from HL standard (newest at end of file)
@@ -64,27 +66,48 @@ ep line env =
     then return $ Just env
     else parseEval line env
 
+
 parseEval :: String -> Env -> IO (Maybe Env)
 parseEval line env = do
-    case parseDef line of
+  case parseDef line of
+    Left s -> do
+      putStrLn $ col AN.Red $ "parse error: " <> s <> " : " <> line
+      return Nothing
+
+    Right (Left (Def name exp)) -> do
+      --putStrLn $ "ORIG:" <> show exp
+      Norm.normalize env exp >>= \case
         Left s -> do
-            putStrLn $ col AN.Red $ "parse error: " <> s <> " : " <> line
-            return Nothing
+          putStrLn $ col AN.Red $ "error during normalization: " <> s
+          return Nothing
+        Right exp' -> do
+          putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+          return $ Just $ Norm.define name exp' env
 
-        Right (Left (Def name exp)) -> do
-          (env,_counts) <- EV.define name exp env
-          --putStrLn $ col AN.Cyan $ "defined: " <> name <> show counts
-          return $ Just $ env
+    Right (Right exp) -> do
+      Norm.normalize env exp >>= \case
+        Left s -> do
+          putStrLn $ col AN.Red $ "error during normalization: " <> s
+          return Nothing
+        Right exp' -> do
+          putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+          (value,counts) <- evaluate initialEvalEnv exp'
+          case value of
+            VError s -> do
+              putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
+              return Nothing
+            v -> do
+              putStrLn $ col AN.Cyan $ show v <> show counts
+              return Nothing
 
-        Right (Right exp) -> do
-            (value,counts) <- EV.evaluate env exp
-            case value of
-                VError s -> do
-                    putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
-                    return Nothing
-                v -> do
-                    putStrLn $ col AN.Cyan $ show v <> show counts
-                    return Nothing
+initialNormEnv :: Env
+initialNormEnv = foldr Norm.preDefined Norm.env0 ["noinline"]
+
+initialEvalEnv :: Eval.Env
+initialEvalEnv = foldr (uncurry Eval.extend) Eval.env0 [
+  ("noinline", return $ VFun $ \eff -> eff)
+  ]
+
 
 col :: AN.Color -> String -> String
 col c s =

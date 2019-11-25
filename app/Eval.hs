@@ -1,9 +1,9 @@
 
 module Eval (
   Def(..), Exp(..), Base(..), Bin(..),
-  Value(VError), Counts(..),
-  Env, env0,
-  evaluate, define,
+  Value(VFun,VError), Counts(..),
+  Env, env0, extend,
+  evaluate,
   ) where
 
 import Control.Monad (ap,liftM,join)
@@ -56,11 +56,6 @@ instance Show Bin where
     Eqi -> "=="
 
 ----------------------------------------------------------------------
-
-define :: String -> Exp -> Env -> IO (Env,Counts)
-define name exp env = run env $ do
-  eff <- share (eval exp)
-  return $ extend name eff env
 
 evaluate :: Env -> Exp -> IO (Value, Counts)
 evaluate env exp = run env (eval exp)

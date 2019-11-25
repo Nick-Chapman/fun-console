@@ -1,5 +1,5 @@
 
-y f = (\x. f (x x)) (\x. f (x x))
+y f = noinline (\x. f (x x)) (\x. f (x x))
 
 zero z _ = z
 succ x _ s = s x
