@@ -70,9 +70,14 @@ parseEval line env = do
         Left s -> do
             putStrLn $ col AN.Red $ "parse error: " <> s <> " : " <> line
             return Nothing
-        Right (Left (Def name exp)) -> return $ Just $ EV.extend name (EV.eval exp) env
+
+        Right (Left (Def name exp)) -> do
+          (env,_counts) <- EV.define name exp env
+          --putStrLn $ col AN.Cyan $ "defined: " <> name <> show counts
+          return $ Just $ env
+
         Right (Right exp) -> do
-            (value,counts) <- EV.run env $ EV.eval exp
+            (value,counts) <- EV.evaluate env exp
             case value of
                 VError s -> do
                     putStrLn $ col AN.Red $ "eval error: " <> s <> show counts

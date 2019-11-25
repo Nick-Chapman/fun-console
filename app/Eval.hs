@@ -3,11 +3,11 @@ module Eval (
   Def(..), Exp(..), Base(..), Bin(..),
   Value(VError), Counts(..),
   Env, env0,
-  Eff, eval, extend, run,
+  evaluate, define,
   ) where
 
 import Control.Monad (ap,liftM,join)
-import Data.Map (Map)
+import Data.Map.Strict (Map)
 import Data.IORef
 import Prelude hiding (lookup)
 import qualified Data.Map as Map
@@ -57,6 +57,15 @@ instance Show Bin where
 
 ----------------------------------------------------------------------
 
+define :: String -> Exp -> Env -> IO (Env,Counts)
+define name exp env = run env $ do
+  eff <- share (eval exp)
+  return $ extend name eff env
+
+evaluate :: Env -> Exp -> IO (Value, Counts)
+evaluate env exp = run env (eval exp)
+
+
 eval :: Exp -> Eff Value
 eval = \case
   EBase bv -> return (VBase bv)
@@ -68,14 +77,8 @@ eval = \case
   ELam x body -> do
     env <- GetEnv
     return $ VFun $ \arg -> do
-      r <- Io $ newIORef undefined
-      Io $ writeIORef r $ do
-        v <- arg
-        Io $ writeIORef r (return v)
-        return v
-      let arg' = join $ Io $ readIORef r
+      arg' <- share arg
       SetEnv (extend x arg' env) $ eval body
-
   EApp fun arg -> do
     vfun <- eval fun
     env <- GetEnv
@@ -86,6 +89,17 @@ eval = \case
     binop bin v1 v2
   ELet x e1 e2 ->
     eval (EApp (ELam x e2) e1)
+
+
+share :: Eff Value -> Eff (Eff Value)
+share arg = do
+  r <- Io $ newIORef undefined
+  Io $ writeIORef r $ do
+    v <- arg
+    Io $ writeIORef r (return v)
+    return v
+  return $ join $ Io $ readIORef r
+
 
 ----------------------------------------------------------------------
 
