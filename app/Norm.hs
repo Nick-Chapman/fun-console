@@ -5,12 +5,12 @@ module Norm (
 
 import Control.Monad (ap,liftM)
 import Data.Map.Strict (Map)
-import Eval(Bin,Exp(..))
+import Eval(Bin,Exp(..),Prim1)
 import Prelude hiding (lookup)
 import qualified Data.Map.Strict as Map
 
 
-normalize :: Env -> Exp -> IO (Either String Exp)
+normalize :: Env -> Exp -> IO (Either String (Exp,InlineCount))
 normalize env exp = run env (eval exp >>= reify)
 
 
@@ -27,6 +27,7 @@ inlineLam = True
 eval :: Exp -> Eff Sem
 eval = \case
   EBase bv -> return $ Syntax $ EBase bv
+  ECon v -> return $ Syntax $ ECon v
   EVar s -> do
     env <- GetEnv
     case lookup env s of
@@ -55,6 +56,10 @@ eval = \case
     s2 <- eval e2
     binop bin s1 s2
 
+  EPrim1 prim e1 -> do
+    s1 <- eval e1
+    unop prim s1
+
   ELet x e1 e2 ->
     eval (EApp (ELam x e2) e1)
 
@@ -62,12 +67,18 @@ eval = \case
 apply :: Sem -> Sem -> Eff Sem
 apply = \case
   Macro f -> \a -> do
+    trackInline
     --Io $ putStr "#"
     f a
   Syntax fun -> \a -> do
     arg <- reify a
     return $ Syntax $ EApp fun arg
 
+
+unop :: Prim1 -> Sem -> Eff Sem
+unop prim s1 = do
+  e1 <- reify s1
+  return $ Syntax $ EPrim1 prim e1
 
 binop :: Bin -> Sem -> Sem -> Eff Sem
 binop bin s1 s2 = do
@@ -89,6 +100,9 @@ reify = \case
     body <- f (Syntax (EVar x)) >>= reify
     return $ ELam x body
 
+trackInline :: Eff ()
+trackInline = Tick
+
 ----------------------------------------------------------------------
 
 instance Functor Eff where fmap = liftM
@@ -102,22 +116,37 @@ data Eff a where
   SetEnv :: Env -> Eff a -> Eff a
   Error :: String -> Eff a
   Fresh :: Eff Int
+  Tick :: Eff ()
   Io :: IO a -> Eff a
 
-type State = Int
 
-run :: Env -> Eff a -> IO (Either String a)
-run env eff = loop 0 env eff >>= \case Left s -> return $ Left s; Right (a,_) -> return $ Right a
+data State = State { fresh :: Int, inlines :: Int }
+
+run :: Env -> Eff a -> IO (Either String (a,InlineCount))
+run env eff =
+  loop s0 env eff >>=
+  \case
+    Left s -> return $ Left s
+    Right (a,State{inlines}) -> return $ Right (a,InlineCount inlines)
+
   where
+    s0 = State { fresh = 0, inlines = 0 }
+
     loop :: State -> Env -> Eff a -> IO (Either String (a, State))
-    loop c env = \case
-      Ret x -> return $ Right (x, c)
-      Bind e f -> loop c env e >>= \case Left s -> return $ Left s; Right (a,c) -> loop c env (f a)
+    loop s@State{fresh,inlines} env = \case
+      Ret x -> return $ Right (x, s)
+      Bind e f -> loop s env e >>= \case Left s -> return $ Left s; Right (a,s) -> loop s env (f a)
       Error s -> return $ Left s
-      GetEnv -> return $ Right (env, c)
-      SetEnv env e -> loop c env e
-      Fresh -> return $ Right (c, c+1)
-      Io io -> do x <- io; return $ Right (x, c)
+      GetEnv -> return $ Right (env, s)
+      SetEnv env e -> loop s env e
+      Fresh -> return $ Right (fresh, s {fresh = fresh + 1})
+      Tick -> return $ Right ((),s {inlines = inlines + 1})
+      Io io -> do x <- io; return $ Right (x, s)
+
+
+newtype InlineCount = InlineCount Int
+
+instance Show InlineCount where show (InlineCount n) = "(inlined:" <> show n <> ")"
 
 ----------------------------------------------------------------------
 

@@ -1,9 +1,10 @@
 
 module Eval (
-  Def(..), Exp(..), Base(..), Bin(..),
-  Value(VFun,VError), Counts(..),
+  Def(..), Exp(..), Base(..), Bin(..), Prim1(..),
+  Value(..), Counts(..),
   Env, env0, extend,
   evaluate,
+  primInt2String,
   ) where
 
 import Control.Monad (ap,liftM,join)
@@ -20,9 +21,11 @@ data Def =
 
 data Exp
   = EBase Base
+  | ECon Value
   | EVar String
   | ELam String Exp
   | EBin Bin Exp Exp
+  | EPrim1 Prim1 Exp
   | EApp Exp Exp
   | ELet String Exp Exp
 
@@ -30,17 +33,21 @@ data Base
   = BNum Int
   | BStr String
 
-data Bin = Add | Sub | Hat | Eqi
+data Bin = Add | Sub | Hat | Eqi | Eqs
+
+data Prim1 = I2S deriving (Show)
 
 ----------------------------------------------------------------------
 
 instance Show Exp where
   show = \case
     EBase v -> "(" ++ show v ++ ")"
+    ECon v -> "(" ++ show v ++ ")"
     EVar s -> s
     EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
     ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
     EBin bin e1 e2 -> "(" ++ show e1 ++ show bin ++ show e2 ++ ")"
+    EPrim1 prim e1 -> "(" ++ show prim ++ show e1 ++ ")"
     ELet x e1 e2 -> "(let " ++ show x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
 
 instance Show Base where
@@ -54,6 +61,7 @@ instance Show Bin where
     Sub -> "-"
     Hat -> "^"
     Eqi -> "=="
+    Eqs -> "==="
 
 ----------------------------------------------------------------------
 
@@ -64,14 +72,15 @@ evaluate env exp = run env (eval exp)
 eval :: Exp -> Eff Value
 eval = \case
   EBase bv -> return (VBase bv)
+  ECon v -> return v
   EVar s -> do
     env <- GetEnv
     case lookup env s of
       Nothing -> return $ VError $ "unknown var: " <> s
       Just v -> v
-  ELam x body -> do
+  exp@(ELam x body) -> do
     env <- GetEnv
-    return $ VFun $ \arg -> do
+    return $ VFun exp $ \arg -> do
       arg' <- share arg
       SetEnv (extend x arg' env) $ eval body
   EApp fun arg -> do
@@ -82,6 +91,9 @@ eval = \case
     v1 <- eval e1
     v2 <- eval e2
     binop bin v1 v2
+  EPrim1 prim e1 -> do
+    v1 <- eval e1
+    unop prim v1
   ELet x e1 e2 ->
     eval (EApp (ELam x e2) e1)
 
@@ -140,33 +152,53 @@ extend k v Env{mapping} = Env $ Map.insert k v mapping
 data Value
   = VBase Base
   | VError String
-  | VFun (Eff Value -> Eff Value)
+  | VFun Exp (Eff Value -> Eff Value)
 
 instance Show Value where
   show = \case
     VBase b -> show b
     VError s -> "error: " <> s
-    VFun _ -> "<function>"
+    --VFun exp _ -> "<function: " <> show exp <> ">"
+    VFun _ _ -> "<function>"
 
 apply :: Value -> Eff Value -> Eff Value
 apply = \case
-  VBase _ -> \_ -> return $ VError "cant apply a base-value as a function"
+  VBase base -> \_ -> return $ VError $ "cant apply a base-value as a function: " <> show base
   e@(VError _) -> \_ -> return e
-  VFun f -> \v -> do
+  VFun _exp f -> \v -> do
     trackApp
     --Io $ putStr "@"
+    --Io $ putStrLn $ "@" <> show _exp
     f v
   where
+
+unop :: Prim1 -> Value -> Eff Value
+unop = \case
+  I2S -> doUn (getNum "i2s-arg") noTrack (VBase . BStr . show)
+
+noTrack :: Eff ()
+noTrack = return ()
+
+doUn :: (Value -> Hopefully a)
+     -> Eff ()
+     -> (a -> Value)
+     -> Value -> Eff Value
+doUn get1 track func = \v1 -> do
+  case get1 v1 of
+    Left s -> return $ VError s
+    Right arg -> do track; return $ func arg
+
 
 binop :: Bin -> Value -> Value -> Eff Value
 binop = \case
   Add -> doBin (getNum "+L") (getNum "+R") trackAdd (VBase . BNum . uncurry (+))
   Sub -> doBin (getNum "-L") (getNum "-R") trackSub (VBase . BNum . uncurry (-))
   Hat -> doBin (getStr "^L") (getStr "^R") trackHat (VBase . BStr . uncurry (<>))
-  Eqi -> doBin (getNum "==L") (getNum "==R") (return ()) (boolV . uncurry (==))
+  Eqi -> doBin (getNum "==L") (getNum "==R") noTrack (boolV . uncurry (==))
+  Eqs -> doBin (getStr "===L") (getStr "===R") noTrack (boolV . uncurry (==))
 
 boolV :: Bool -> Value
-boolV b = VFun $ \t -> return $ VFun $ \f -> if b then t else f
+boolV b = VFun (EVar "_if1_") $ \t -> return $ VFun (EVar "_if2_") $ \f -> if b then t else f
 
 type Hopefully = Either String
 
@@ -188,15 +220,23 @@ getNum :: String -> Value -> Hopefully Int
 getNum tag = \case
   VBase (BNum n) -> Right n
   VBase (BStr _) -> Left $ tag <> " : expected Num, got String"
-  VFun _ -> Left $ tag <> " : expected Num, got Function"
+  VFun _ _ -> Left $ tag <> " : expected Num, got Function"
   VError s -> Left s
 
 getStr :: String -> Value -> Hopefully String
 getStr tag = \case
   VBase (BStr s) -> Right s
   VBase (BNum _) -> Left $ tag <> " : expected String, got Num"
-  VFun _ -> Left $ tag <> " : expected Str, got Function"
+  VFun _ _ -> Left $ tag <> " : expected Str, got Function"
   VError s -> Left s
+
+
+primInt2String :: Value
+primInt2String = VFun (EVar "_primInt2String_") $ \eff -> do
+  v <- eff
+  let exp :: Exp = ECon v
+  eval $ EPrim1 I2S exp
+
 
 ----------------------------------------------------------------------
 

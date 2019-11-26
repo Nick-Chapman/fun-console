@@ -82,7 +82,8 @@ lang = do
             mkBin (EBin Add) "+" a b,
             mkBin (EBin Sub) "-" a b,
             mkBin (EBin Hat) "^" a b,
-            mkBin (EBin Eqi) "==" a b
+            mkBin (EBin Eqi) "==" a b,
+            mkBin (EBin Eqs) "===" a b
             ]
 
     let mkLam exp = do

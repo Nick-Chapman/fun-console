@@ -2,7 +2,7 @@
 module Main (main) where
 
 import Control.Monad.Trans.Class (lift)
-import Eval (Def(..),Value(VFun,VError),evaluate)
+import Eval (Def(..),Exp(..),Value(..),evaluate,primInt2String)
 import Norm (Env,normalize)
 import Parse (parseDef)
 import qualified Eval (Env,env0,extend)
@@ -42,7 +42,7 @@ replay env =
         [] -> return env
         line:earlier -> do
             env1 <- replay env earlier
-            putStrLn line
+            putStr line
             ep line env1 >>= \case
                 Nothing -> return env1
                 Just env2 -> return env2
@@ -80,8 +80,9 @@ parseEval line env = do
         Left s -> do
           putStrLn $ col AN.Red $ "error during normalization: " <> s
           return Nothing
-        Right exp' -> do
-          putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+        Right (exp',_inlineCount) -> do
+          --putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+          putStrLn $ col AN.Green $ " " <> show _inlineCount
           return $ Just $ Norm.define name exp' env
 
     Right (Right exp) -> do
@@ -89,8 +90,9 @@ parseEval line env = do
         Left s -> do
           putStrLn $ col AN.Red $ "error during normalization: " <> s
           return Nothing
-        Right exp' -> do
-          putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+        Right (exp',_inlineCount) -> do
+          --putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+          putStr $ col AN.Green $ " " <> show _inlineCount <> " "
           (value,counts) <- evaluate initialEvalEnv exp'
           case value of
             VError s -> do
@@ -101,13 +103,13 @@ parseEval line env = do
               return Nothing
 
 initialNormEnv :: Env
-initialNormEnv = foldr Norm.preDefined Norm.env0 ["noinline"]
+initialNormEnv = foldr Norm.preDefined Norm.env0 ["noinline","primInt2String"]
 
 initialEvalEnv :: Eval.Env
-initialEvalEnv = foldr (uncurry Eval.extend) Eval.env0 [
-  ("noinline", return $ VFun $ \eff -> eff)
+initialEvalEnv = foldr (uncurry Eval.extend) Eval.env0
+  [ ("noinline", return $ VFun (EVar "_noinline_") $ \eff -> eff)
+  , ("primInt2String", return $ primInt2String)
   ]
-
 
 col :: AN.Color -> String -> String
 col c s =
