@@ -14,7 +14,7 @@ import Eval (Exp(..),Def(..),Base(..),Bin(..))
 
 type Hopefully = Either String
 
-parseDef :: String -> Hopefully (Either Def Exp)
+parseDef :: String -> Hopefully (Maybe (Either Def Exp))
 parseDef s =
   case EM.parse lang s of
     EM.Parsing{EM.outcome} -> case outcome of
@@ -25,7 +25,7 @@ keywords :: [String] -- which are not allowed as identifiers
 --keywords = ["let","in"]
 keywords = []
 
-lang :: Lang Char (Gram (Either Def Exp))
+lang :: Lang Char (Gram (Maybe (Either Def Exp)))
 lang = do
 
     token <- getToken
@@ -33,11 +33,15 @@ lang = do
     let symbol x = do t <-token; if t==x then return () else fail
     let sat pred = do c <- token; if pred c then return c else fail
 
+    let eps = return ()
+    let skip p = do _ <- p; eps
+    let optional p = alts [p,eps]
+
     let alpha = sat Char.isAlpha
     let numer = sat Char.isDigit
     let prime = sat (== '\'')
     let digit = do c <- numer; return (digitOfChar c)
-    let white = do _ <- sat Char.isSpace; return ()
+    let space = skip (sat Char.isSpace)
 
     digits <- fix"digits" $ \digits -> return $ alts [
         do n <- digits; d <- digit; return (10 * n + d),
@@ -48,9 +52,8 @@ lang = do
 
     let keyword string = mapM_ symbol string
 
-    let ws = skipWhile white -- white*
-    let ws1 = do white; ws -- white+
-    let eps = return ()
+    let ws = skipWhile space -- white*
+    let ws1 = do space; ws -- white+
 
     let underscore = do symbol '_'; return "_"
     let formal = alts [ident,underscore]
@@ -82,6 +85,7 @@ lang = do
             mkBin (EBin Add) "+" a b,
             mkBin (EBin Sub) "-" a b,
             mkBin (EBin Hat) "^" a b,
+            mkBin (EBin Gri) ">" a b,
             mkBin (EBin Eqi) "==" a b,
             mkBin (EBin Eqs) "===" a b
             ]
@@ -134,11 +138,21 @@ lang = do
             ws; body <- exp
             return $ Def name (foldr ELam body args)
 
-    let top = alts [
-            do d <- def; return $ Left d,
-            do e <- exp; return $ Right e]
 
-    return $ do ws; x <- top; ws; return x
+    let top = alts
+          [ do d <- def; return $ Left d
+          , do e <- exp; return $ Right e
+          ]
+
+    let dash = skip (sat (== '-'))
+    let lineComment = do dash; dash; skipWhile (skip (sat (/= '\n')))
+
+    return $ alts
+      [ do eps; return Nothing
+      , do lineComment; return Nothing
+      , do ws1; optional lineComment; return Nothing
+      , do ws; x <- top; ws; optional lineComment; return $ Just x
+      ]
 
 digitOfChar :: Char -> Int
 digitOfChar c = Char.ord c - ord0 where ord0 = Char.ord '0'

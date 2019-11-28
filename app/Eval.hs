@@ -32,7 +32,7 @@ data Base
   = BNum Int
   | BStr String
 
-data Bin = Add | Sub | Hat | Eqi | Eqs
+data Bin = Add | Sub | Hat | Gri | Eqi | Eqs
 
 data Prim1 = I2S deriving (Show)
 
@@ -47,7 +47,7 @@ instance Show Exp where
     ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
     EBin bin e1 e2 -> "(" ++ show e1 ++ show bin ++ show e2 ++ ")"
     EPrim1 prim e1 -> "(" ++ show prim ++ show e1 ++ ")"
-    ELet x e1 e2 -> "(let " ++ show x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
+    ELet x e1 e2 -> "(let " ++ x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
 
 instance Show Base where
   show = \case
@@ -59,6 +59,7 @@ instance Show Bin where
     Add -> "+"
     Sub -> "-"
     Hat -> "^"
+    Gri -> ">"
     Eqi -> "=="
     Eqs -> "==="
 
@@ -197,6 +198,7 @@ binop = \case
   Add -> doBin (getNum "+L") (getNum "+R") trackAdd (VBase . BNum . uncurry (+))
   Sub -> doBin (getNum "-L") (getNum "-R") trackSub (VBase . BNum . uncurry (-))
   Hat -> doBin (getStr "^L") (getStr "^R") trackHat (VBase . BStr . uncurry (<>))
+  Gri -> doBin (getNum ">L") (getNum ">R") noTrack (boolV . uncurry (>))
   Eqi -> doBin (getNum "==L") (getNum "==R") noTrack (boolV . uncurry (==))
   Eqs -> doBin (getStr "===L") (getStr "===R") noTrack (boolV . uncurry (==))
 

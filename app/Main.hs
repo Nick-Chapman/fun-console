@@ -59,8 +59,6 @@ env0 = Env
   , normalizationEnv = Norm.env0
   }
 
-
-
 -- keep history in opposite order from HL standard (newest at end of file)
 
 haskelineSettings :: HL.Settings IO
@@ -81,8 +79,7 @@ replay env = \case
   [] -> return env
   line:earlier -> do
     env1 <- replay env earlier
-    putStr line
-    ep line env1 >>= \case
+    pep putStrLn line env1 >>= \case
       Nothing -> return env1
       Just env2 -> return env2
 
@@ -94,39 +91,39 @@ repl conf n env = do
     Just line -> do
       HL.modifyHistory (HL.addHistory line)
       HL.getHistory >>= lift . writeHistory conf
-      lift (ep line env) >>= \case
+      let noput _ = return ()
+      lift (pep noput line env) >>= \case
         Nothing -> repl conf n env
         Just env' -> repl conf (n + 1) env'
 
--- eval-print
-ep :: String -> Env -> IO (Maybe Env)
-ep line env =
-  if line == ""
-  then return $ Just env
-  else parseEval line env
-
-
-parseEval :: String -> Env -> IO (Maybe Env)
-parseEval line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
+-- parse-eval-print
+pep :: (String -> IO ()) -> String -> Env -> IO (Maybe Env)
+pep put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
   case parseDef line of
+
     Left s -> do
       putStrLn $ col AN.Red $ "parse error: " <> s <> " : " <> line
       return Nothing
-    Right (Left (Def name exp)) -> do
+
+    Right Nothing -> do
+      return Nothing
+
+    Right (Just (Left (Def name exp))) -> do
+      put line
       Norm.normalize normalizationEnv exp >>= \case
         Left s -> do
           putStrLn $ col AN.Red $ "error during normalization: " <> s
           return Nothing
         Right (exp',Norm.Counts{Norm.beta}) -> do
-          putStrLn $ (if beta>0 then col AN.Blue $ " (beta:" <> show beta <> ")" else "")
-          --putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+          if beta>0 then putStrLn $ col AN.Blue $ "(beta:" <> show beta <> ")" else return ()
+          --putStrLn $ "NORM-> " <> (col AN.Green $ show exp') --on flag?
           return $ Just $ env
             { evaluationEnv = Map.insert name (Eval.eval exp) evaluationEnv
             , evaluationEnv2 = Map.insert name (Eval.eval exp') evaluationEnv2
             , normalizationEnv = Map.insert name (Norm.norm exp) normalizationEnv
             }
-    Right (Right exp) -> do
-      putStrLn ""
+    Right (Just (Right exp)) -> do
+      put line
       showEval AN.Cyan evaluationEnv exp
       showEval AN.Blue evaluationEnv2 exp
       return Nothing
