@@ -16,10 +16,10 @@ main = HL.runInputT haskelineSettings $ start
 
 start :: HL.InputT IO ()
 start = do
-    history <- lift $ readHistory
-    HL.putHistory history
-    env <- lift $ replay initialNormEnv (HL.historyLines history)
-    repl 1 env
+  history <- lift $ readHistory
+  HL.putHistory history
+  env <- lift $ replay initialNormEnv (HL.historyLines history)
+  repl 1 env
 
 -- keep history in opposite order from HL standard (newest at end of file)
 
@@ -37,34 +37,33 @@ readHistory = fmap revHistory $ HL.readHistory ".history"
 
 -- replay .history lines
 replay :: Env -> [String] -> IO Env
-replay env =
-    \case
-        [] -> return env
-        line:earlier -> do
-            env1 <- replay env earlier
-            putStr line
-            ep line env1 >>= \case
-                Nothing -> return env1
-                Just env2 -> return env2
+replay env = \case
+  [] -> return env
+  line:earlier -> do
+    env1 <- replay env earlier
+    putStr line
+    ep line env1 >>= \case
+      Nothing -> return env1
+      Just env2 -> return env2
 
 -- read-eval-print-loop
 repl :: Int -> Env -> HL.InputT IO ()
 repl n env = do
-    HL.getInputLine (col AN.Green $ show n <> "> ") >>= \case
-        Nothing -> return ()
-        Just line -> do
-            HL.modifyHistory (HL.addHistory line)
-            HL.getHistory >>= lift . writeHistory
-            lift (ep line env) >>= \case
-                Nothing -> repl n env
-                Just env' -> repl (n + 1) env'
+  HL.getInputLine (col AN.Green $ show n <> "> ") >>= \case
+    Nothing -> return ()
+    Just line -> do
+      HL.modifyHistory (HL.addHistory line)
+      HL.getHistory >>= lift . writeHistory
+      lift (ep line env) >>= \case
+        Nothing -> repl n env
+        Just env' -> repl (n + 1) env'
 
 -- eval-print
 ep :: String -> Env -> IO (Maybe Env)
 ep line env =
-    if line == ""
-    then return $ Just env
-    else parseEval line env
+  if line == ""
+  then return $ Just env
+  else parseEval line env
 
 
 parseEval :: String -> Env -> IO (Maybe Env)
@@ -102,6 +101,7 @@ parseEval line env = do
               putStrLn $ col AN.Cyan $ show v <> show counts
               return Nothing
 
+
 initialNormEnv :: Env
 initialNormEnv = foldr Norm.preDefined Norm.env0 ["noinline","primInt2String"]
 
@@ -113,5 +113,5 @@ initialEvalEnv = foldr (uncurry Eval.extend) Eval.env0
 
 col :: AN.Color -> String -> String
 col c s =
-    AN.setSGRCode [AN.SetColor AN.Foreground AN.Vivid c] <> s <>
-    AN.setSGRCode [AN.SetColor AN.Foreground AN.Vivid AN.White]
+  AN.setSGRCode [AN.SetColor AN.Foreground AN.Vivid c] <> s <>
+  AN.setSGRCode [AN.SetColor AN.Foreground AN.Vivid AN.White]
