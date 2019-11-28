@@ -8,6 +8,8 @@ one = succ zero
 two = succ one
 three = succ two
 
+error _ = 999
+
 show = u \show n. n 0 \u p. 1 + u show p
 add = u \add a b. a b \u a. succ (u add a b)
 mul = u \mul a b. a zero \u a'. add b (u mul a' b)

@@ -72,13 +72,38 @@ norm = \case
 
 apply :: Sem -> Sem -> Eff Sem
 apply = \case
-  Macro f -> \a -> do
-    trackInline
-    --Io $ putStr "#"
-    f a
   Syntax fun -> \a -> do
     arg <- reify a
     return $ Syntax $ EApp fun arg
+
+  Macro f -> \a -> do
+    trackInline
+    --Io $ putStr "#"
+
+    if isAtomic a then f a else do
+      arg <- reify a
+      n <- Fresh
+      let x = "u" <> show n
+      continuation <- f (Syntax (EVar x)) >>= reify
+      return $ Syntax $ ELet x arg continuation
+
+
+isAtomic :: Sem -> Bool
+isAtomic = \case
+  Macro _ -> True
+  Syntax exp -> isAtomicExp exp
+
+isAtomicExp :: Exp -> Bool
+isAtomicExp = \case
+  EBase{}  -> True
+  ECon{}   -> True
+  EVar{}   -> True
+
+  ELam{}   -> False
+  EBin{}   -> False
+  EPrim1{} -> False
+  EApp{}   -> False
+  ELet{}   -> False
 
 
 unop :: Prim1 -> Sem -> Eff Sem

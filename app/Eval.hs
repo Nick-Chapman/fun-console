@@ -89,8 +89,12 @@ eval = \case
   EPrim1 prim e1 -> do
     v1 <- eval e1
     unop prim v1
-  ELet x e1 e2 ->
-    eval (EApp (ELam x e2) e1)
+
+  ELet x rhs body -> do
+--    eval (EApp (ELam x body) rhs)
+    v <- share (eval rhs)
+    env <- GetEnv
+    SetEnv (Map.insert x v env) $ eval body
 
 
 share :: Eff Value -> Eff (Eff Value)
