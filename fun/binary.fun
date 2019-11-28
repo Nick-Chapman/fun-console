@@ -1,6 +1,6 @@
 
 id x = x
-y = \f. (\x. f (x x)) (\x. f (x x))
+y = \f. noinline (\x. f (x x)) (\x. f (x x))
 
 false = \f t. f
 true  = \f t. t

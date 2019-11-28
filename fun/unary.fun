@@ -14,6 +14,7 @@ add = y \add a b. a b \a. succ (add a b)
 mul = y \mul a b. a zero \a'. add b (mul a' b)
 fact = y \fact n. n one \p. mul n (fact p)
 
-square x = mul x x
+show (fact (fact three))
 
-show (fact (mul two three))
+res = fact three
+res

@@ -1,6 +1,6 @@
 
 id x = x
-y f = (\x. f (x x)) (\x. f (x x))
+y f = noinline (\x. f (x x)) (\x. f (x x))
 
 nil n c = n
 cons x xs n c = c x xs
