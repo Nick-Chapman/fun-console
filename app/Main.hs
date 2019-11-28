@@ -1,6 +1,7 @@
 
 module Main (main) where
 
+import System.Environment (getArgs)
 import Control.Monad.Trans.Class (lift)
 import Eval (Def(..),Exp(..),Value(..),evaluate,primInt2String)
 import Norm (Env,normalize)
@@ -12,14 +13,33 @@ import qualified System.Console.Haskeline as HL
 import qualified System.Console.Haskeline.History as HL
 
 main :: IO ()
-main = HL.runInputT haskelineSettings $ start
+main = do
+  args <- getArgs
+  let conf = parseArgs args
+  HL.runInputT haskelineSettings $ start conf
 
-start :: HL.InputT IO ()
-start = do
-  history <- lift $ readHistory
+data Conf = Conf
+  { funFile :: FilePath
+  }
+
+defaultConf :: Conf
+defaultConf = Conf
+  { funFile = ".history"
+  }
+
+parseArgs :: [String] -> Conf
+parseArgs args = loop args defaultConf
+  where
+    loop args conf = case args of
+      [] -> conf
+      funFile:rest -> loop rest $ conf { funFile }
+
+start :: Conf -> HL.InputT IO ()
+start conf = do
+  history <- lift $ readHistory conf
   HL.putHistory history
   env <- lift $ replay initialNormEnv (HL.historyLines history)
-  repl 1 env
+  repl conf 1 env
 
 -- keep history in opposite order from HL standard (newest at end of file)
 
@@ -29,11 +49,11 @@ haskelineSettings = HL.defaultSettings {HL.autoAddHistory = False}
 revHistory :: HL.History -> HL.History
 revHistory = foldl (flip HL.addHistory) HL.emptyHistory . HL.historyLines
 
-writeHistory :: HL.History -> IO ()
-writeHistory = HL.writeHistory ".history" . revHistory
+writeHistory :: Conf -> HL.History -> IO ()
+writeHistory Conf{funFile} = HL.writeHistory funFile . revHistory
 
-readHistory :: IO HL.History
-readHistory = fmap revHistory $ HL.readHistory ".history"
+readHistory :: Conf -> IO HL.History
+readHistory Conf{funFile} = fmap revHistory $ HL.readHistory funFile
 
 -- replay .history lines
 replay :: Env -> [String] -> IO Env
@@ -47,16 +67,16 @@ replay env = \case
       Just env2 -> return env2
 
 -- read-eval-print-loop
-repl :: Int -> Env -> HL.InputT IO ()
-repl n env = do
+repl :: Conf -> Int -> Env -> HL.InputT IO ()
+repl conf n env = do
   HL.getInputLine (col AN.Green $ show n <> "> ") >>= \case
     Nothing -> return ()
     Just line -> do
       HL.modifyHistory (HL.addHistory line)
-      HL.getHistory >>= lift . writeHistory
+      HL.getHistory >>= lift . writeHistory conf
       lift (ep line env) >>= \case
-        Nothing -> repl n env
-        Just env' -> repl (n + 1) env'
+        Nothing -> repl conf n env
+        Just env' -> repl conf (n + 1) env'
 
 -- eval-print
 ep :: String -> Env -> IO (Maybe Env)
