@@ -1,17 +1,16 @@
 
 module Eval (
   Def(..), Exp(..), Base(..), Bin(..), Prim1(..),
-  Value(..), Counts(..),
-  Env, env0, extend,
-  evaluate,
-  primInt2String,
+  Value(..),
+  eval, Eff,
+  env0, run, Counts(..),
   ) where
 
 import Control.Monad (ap,liftM,join)
 import Data.Map.Strict (Map)
 import Data.IORef
 import Prelude hiding (lookup)
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 
 ----------------------------------------------------------------------
 
@@ -65,24 +64,20 @@ instance Show Bin where
 
 ----------------------------------------------------------------------
 
-evaluate :: Env -> Exp -> IO (Value, Counts)
-evaluate env exp = run env (eval exp)
-
-
 eval :: Exp -> Eff Value
 eval = \case
   EBase bv -> return (VBase bv)
   ECon v -> return v
   EVar s -> do
     env <- GetEnv
-    case lookup env s of
+    case Map.lookup s env of
       Nothing -> return $ VError $ "unknown var: " <> s
       Just v -> v
   exp@(ELam x body) -> do
     env <- GetEnv
     return $ VFun exp $ \arg -> do
       arg' <- share arg
-      SetEnv (extend x arg' env) $ eval body
+      SetEnv (Map.insert x arg' env) $ eval body
   EApp fun arg -> do
     vfun <- eval fun
     env <- GetEnv
@@ -136,16 +131,20 @@ run = loop counts0
 
 ----------------------------------------------------------------------
 
-newtype Env = Env { mapping :: Map String (Eff Value) }
+type Env = Map String (Eff Value)
 
 env0 :: Env
-env0 = Env Map.empty
+env0 =
+  foldr (uncurry Map.insert) Map.empty
+  [ ("noinline", return $ VFun (EVar "_noinline_") $ \eff -> eff)
+  , ("primInt2String", return $ Eval.primInt2String)
+  ]
 
-lookup :: Env -> String -> Maybe (Eff Value)
-lookup Env{mapping} s = Map.lookup s mapping
-
-extend :: String -> Eff Value -> Env -> Env
-extend k v Env{mapping} = Env $ Map.insert k v mapping
+primInt2String :: Value
+primInt2String = VFun (EVar "_primInt2String_") $ \eff -> do
+  v <- eff
+  let exp :: Exp = ECon v
+  eval $ EPrim1 I2S exp
 
 ----------------------------------------------------------------------
 
@@ -229,13 +228,6 @@ getStr tag = \case
   VBase (BNum _) -> Left $ tag <> " : expected String, got Num"
   VFun _ _ -> Left $ tag <> " : expected Str, got Function"
   VError s -> Left s
-
-
-primInt2String :: Value
-primInt2String = VFun (EVar "_primInt2String_") $ \eff -> do
-  v <- eff
-  let exp :: Exp = ECon v
-  eval $ EPrim1 I2S exp
 
 
 ----------------------------------------------------------------------

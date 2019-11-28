@@ -1,6 +1,7 @@
 
 module Norm (
-  Env, env0, normalize, define, preDefined,
+  norm, Eff, Sem,
+  env0, normalize, Counts(..),
   ) where
 
 import Control.Monad (ap,liftM)
@@ -10,27 +11,32 @@ import Prelude hiding (lookup)
 import qualified Data.Map.Strict as Map
 
 
-normalize :: Env -> Exp -> IO (Either String (Exp,InlineCount))
-normalize env exp = run env (eval exp >>= reify)
+normalize :: Env -> Exp -> IO (Either String (Exp,Counts))
+normalize env exp = run env (norm exp >>= reify)
 
 
-define :: String -> Exp -> Env -> Env
-define name exp env = extend name (eval exp) env
+type Env = Map String (Eff Sem)
+
+env0 :: Env
+env0 = foldr Norm.preDefined Map.empty predefined
 
 preDefined :: String -> Env -> Env
-preDefined name env = extend name (return $ Syntax $ EVar name) env
+preDefined name env = Map.insert name (return $ Syntax $ EVar name) env
+
+predefined :: [String]
+predefined = ["noinline","primInt2String","error"]
 
 
 inlineLam :: Bool
 inlineLam = True
 
-eval :: Exp -> Eff Sem
-eval = \case
+norm :: Exp -> Eff Sem
+norm = \case
   EBase bv -> return $ Syntax $ EBase bv
   ECon v -> return $ Syntax $ ECon v
   EVar s -> do
     env <- GetEnv
-    case lookup env s of
+    case Map.lookup s env of
       Nothing -> Error $ "unknown var: " <> s
       Just v -> v
 
@@ -38,30 +44,30 @@ eval = \case
     | inlineLam -> do
         env <- GetEnv
         return $ Macro $ \arg -> do
-          SetEnv (extend x (return arg) env) (eval body)
+          SetEnv (Map.insert x (return arg) env) (norm body)
 
     | otherwise -> do
         env <- GetEnv
-        bodyS <- SetEnv (extend x (return $ Syntax $ EVar x) env) (eval body)
+        bodyS <- SetEnv (Map.insert x (return $ Syntax $ EVar x) env) (norm body)
         body' <- reify bodyS
         return $ Syntax $ ELam x body'
 
   EApp fun arg -> do
-    funS <- eval fun
-    argS <- eval arg
+    funS <- norm fun
+    argS <- norm arg
     apply funS argS
 
   EBin bin e1 e2 -> do
-    s1 <- eval e1
-    s2 <- eval e2
+    s1 <- norm e1
+    s2 <- norm e2
     binop bin s1 s2
 
   EPrim1 prim e1 -> do
-    s1 <- eval e1
+    s1 <- norm e1
     unop prim s1
 
   ELet x e1 e2 ->
-    eval (EApp (ELam x e2) e1)
+    norm (EApp (ELam x e2) e1)
 
 
 apply :: Sem -> Sem -> Eff Sem
@@ -122,12 +128,12 @@ data Eff a where
 
 data State = State { fresh :: Int, inlines :: Int }
 
-run :: Env -> Eff a -> IO (Either String (a,InlineCount))
+run :: Env -> Eff a -> IO (Either String (a,Counts))
 run env eff =
   loop s0 env eff >>=
   \case
     Left s -> return $ Left s
-    Right (a,State{inlines}) -> return $ Right (a,InlineCount inlines)
+    Right (a,State{inlines}) -> return $ Right (a,Counts inlines)
 
   where
     s0 = State { fresh = 0, inlines = 0 }
@@ -144,21 +150,4 @@ run env eff =
       Io io -> do x <- io; return $ Right (x, s)
 
 
-newtype InlineCount = InlineCount Int
-
-instance Show InlineCount where show (InlineCount n) = "(inlined:" <> show n <> ")"
-
-----------------------------------------------------------------------
-
-type Key = String
-type Val = Eff Sem
-newtype Env = Env { mapping :: Map Key Val }
-
-env0 :: Env
-env0 = Env Map.empty
-
-lookup :: Env -> Key -> Maybe Val
-lookup Env{mapping} s = Map.lookup s mapping
-
-extend :: Key -> Val -> Env -> Env
-extend k v Env{mapping} = Env $ Map.insert k v mapping
+newtype Counts = Counts { beta :: Int }

@@ -1,16 +1,18 @@
 
 module Main (main) where
 
-import System.Environment (getArgs)
 import Control.Monad.Trans.Class (lift)
-import Eval (Def(..),Exp(..),Value(..),evaluate,primInt2String)
-import Norm (Env,normalize)
+import Eval (Def(..),Value(..),Eff)
 import Parse (parseDef)
-import qualified Eval (Env,env0,extend)
-import qualified Norm (env0,define,preDefined)
+import System.Environment (getArgs)
+import qualified Eval
+import qualified Norm
 import qualified System.Console.ANSI as AN
 import qualified System.Console.Haskeline as HL
 import qualified System.Console.Haskeline.History as HL
+
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 
 main :: IO ()
 main = do
@@ -38,8 +40,26 @@ start :: Conf -> HL.InputT IO ()
 start conf = do
   history <- lift $ readHistory conf
   HL.putHistory history
-  env <- lift $ replay initialNormEnv (HL.historyLines history)
+  env <- lift $ replay env0 (HL.historyLines history)
   repl conf 1 env
+
+
+data Env = Env
+  { evaluationEnv :: EE
+  , evaluationEnv2 :: EE
+  , normalizationEnv  :: Map String (Norm.Eff Norm.Sem)
+  }
+
+type EE = Map String (Eval.Eff Eval.Value)
+
+env0 :: Env
+env0 = Env
+  { evaluationEnv = Eval.env0
+  , evaluationEnv2 = Eval.env0
+  , normalizationEnv = Norm.env0
+  }
+
+
 
 -- keep history in opposite order from HL standard (newest at end of file)
 
@@ -87,49 +107,37 @@ ep line env =
 
 
 parseEval :: String -> Env -> IO (Maybe Env)
-parseEval line env = do
+parseEval line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
   case parseDef line of
     Left s -> do
       putStrLn $ col AN.Red $ "parse error: " <> s <> " : " <> line
       return Nothing
-
     Right (Left (Def name exp)) -> do
-      --putStrLn $ "ORIG:" <> show exp
-      Norm.normalize env exp >>= \case
+      Norm.normalize normalizationEnv exp >>= \case
         Left s -> do
           putStrLn $ col AN.Red $ "error during normalization: " <> s
           return Nothing
-        Right (exp',_inlineCount) -> do
+        Right (exp',Norm.Counts{Norm.beta}) -> do
+          putStrLn $ (if beta>0 then col AN.Blue $ " (beta:" <> show beta <> ")" else "")
           --putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
-          putStrLn $ col AN.Green $ " " <> show _inlineCount
-          return $ Just $ Norm.define name exp' env
-
+          return $ Just $ env
+            { evaluationEnv = Map.insert name (Eval.eval exp) evaluationEnv
+            , evaluationEnv2 = Map.insert name (Eval.eval exp') evaluationEnv2
+            , normalizationEnv = Map.insert name (Norm.norm exp) normalizationEnv
+            }
     Right (Right exp) -> do
-      Norm.normalize env exp >>= \case
-        Left s -> do
-          putStrLn $ col AN.Red $ "error during normalization: " <> s
-          return Nothing
-        Right (exp',_inlineCount) -> do
-          --putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
-          putStr $ col AN.Green $ " " <> show _inlineCount <> " "
-          (value,counts) <- evaluate initialEvalEnv exp'
-          case value of
-            VError s -> do
-              putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
-              return Nothing
-            v -> do
-              putStrLn $ col AN.Cyan $ show v <> show counts
-              return Nothing
+      putStrLn ""
+      showEval AN.Cyan evaluationEnv exp
+      showEval AN.Blue evaluationEnv2 exp
+      return Nothing
 
+showEval :: AN.Color -> EE -> Eval.Exp -> IO ()
+showEval colour ee exp = do
+  (value,counts) <- Eval.run ee (Eval.eval exp)
+  case value of
+    VError s -> putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
+    v -> putStrLn $ col colour $ show v <> show counts
 
-initialNormEnv :: Env
-initialNormEnv = foldr Norm.preDefined Norm.env0 ["noinline","primInt2String"]
-
-initialEvalEnv :: Eval.Env
-initialEvalEnv = foldr (uncurry Eval.extend) Eval.env0
-  [ ("noinline", return $ VFun (EVar "_noinline_") $ \eff -> eff)
-  , ("primInt2String", return $ primInt2String)
-  ]
 
 col :: AN.Color -> String -> String
 col c s =
