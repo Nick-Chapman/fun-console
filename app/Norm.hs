@@ -4,7 +4,7 @@ module Norm (
   env0, normalize, Counts(..),
   ) where
 
-import Ast (Bin,Exp(..),Prim1(..),Prim4(..),Base)
+import Ast (Exp(..),Base,Prim1,Prim2,Prim3)
 import Control.Monad (ap,liftM)
 import Data.Map.Strict (Map)
 import Eval(Value(VBase))
@@ -13,13 +13,11 @@ import qualified Ast
 import qualified Data.Map.Strict as Map
 import qualified Eval
 
-
 noLets :: Bool
 noLets = False -- TODO: flag?
 
 normalize :: Env -> Exp -> IO (Either String (Exp,Counts))
 normalize env exp = run env (norm exp >>= reify)
-
 
 type Env = Map String (Eff Sem)
 
@@ -27,23 +25,17 @@ opaque :: String -> (String, Eff Sem)
 opaque name = (name, return $ Syntax $ EVar name)
 
 env0 :: Env
-env0 = Map.fromList
-  [ ("primInt2String", norm $ Ast.prim1 I2S)
-  , ("error", norm $ Ast.prim1 PrimErr)
-  , opaque "noinline"
---  , opaque "error"
-  ]
-
+env0 =
+  Map.fromList [ opaque "noinline"] <>
+  Map.map norm Ast.env
 
 inlineLam :: Bool
 inlineLam = True
-
 
 data Sem
   = Syntax Exp
   | Macro (Sem -> Eff Sem)
   | SemBase Base
-
 
 reify :: Sem -> Eff Exp
 reify = \case
@@ -54,7 +46,6 @@ reify = \case
     let x = "u" <> show n
     body <- f (Syntax (EVar x)) >>= reify
     return $ ELam x body
-
 
 norm :: Exp -> Eff Sem
 norm = \case
@@ -84,21 +75,20 @@ norm = \case
     argS <- norm arg
     apply funS argS
 
-  EBin bin e1 e2 -> do
+  EPrim2 prim e1 e2 -> do
     s1 <- norm e1
     s2 <- norm e2
-    binop bin s1 s2
+    prim2op prim s1 s2
 
   EPrim1 prim e1 -> do
     s1 <- norm e1
-    unop prim s1
+    prim1op prim s1
 
-  EPrim4 prim e1 e2 e3 e4 -> do
+  EPrim3 prim e1 e2 e3 -> do
     s1 <- norm e1
     s2 <- norm e2
     s3 <- norm e3
-    s4 <- norm e4
-    prim4op prim s1 s2 s3 s4
+    prim3op prim s1 s2 s3
 
   ELet x e1 e2 ->
     norm (EApp (ELam x e2) e1)
@@ -107,7 +97,7 @@ norm = \case
 apply :: Sem -> Sem -> Eff Sem
 apply = \case
   Macro f -> \a -> do
-    trackInline
+    TickApp
     --Io $ putStr "#"
 
     if noLets || isAtomic a then f a else do
@@ -122,7 +112,6 @@ apply = \case
     arg <- reify a
     return $ Syntax $ EApp fun arg
 
-
 isAtomic :: Sem -> Bool
 isAtomic = \case
   Macro _ -> True
@@ -133,48 +122,41 @@ isAtomicExp :: Exp -> Bool
 isAtomicExp = \case
   EBase{}  -> True
   EVar{}   -> True
-
   ELam{}   -> False
-  EBin{}   -> False
   EPrim1{} -> False
-  EPrim4{} -> False
+  EPrim2{} -> False
+  EPrim3{} -> False
   EApp{}   -> False
   ELet{}   -> False
 
-
-unop :: Prim1 -> Sem -> Eff Sem
-unop prim = \case
-  SemBase b1 -> eitherToError $ fmap SemBase $ Eval.unop prim (VBase b1)
+prim1op :: Prim1 -> Sem -> Eff Sem
+prim1op prim = \case
+  SemBase b1 -> eitherToError $ fmap SemBase $ Eval.prim1op prim (VBase b1)
   s1 -> do
     e1 <- reify s1
     return $ Syntax $ EPrim1 prim e1
 
-binop :: Bin -> Sem -> Sem -> Eff Sem
-binop bin s1 s2 = case (s1,s2) of
-  (SemBase b1, SemBase b2) -> eitherToError $ fmap SemBase $ Eval.binop bin (VBase b1) (VBase b2)
+prim2op :: Prim2 -> Sem -> Sem -> Eff Sem
+prim2op prim s1 s2 = case (s1,s2) of
+  (SemBase b1, SemBase b2) -> eitherToError $ fmap SemBase $ Eval.prim2op prim (VBase b1) (VBase b2)
   _ -> do
     e1 <- reify s1
     e2 <- reify s2
-    return $ Syntax $ EBin bin e1 e2
+    return $ Syntax $ EPrim2 prim e1 e2
 
-prim4op :: Prim4 -> Sem -> Sem -> Sem -> Sem -> Eff Sem
-prim4op prim s1 s2 s3 s4 = case (s1,s2) of
-  (SemBase b1, SemBase b2) -> eitherToError $ Eval.prim4op prim (VBase b1) (VBase b2) s3 s4
+prim3op :: Prim3 -> Sem -> Sem -> Sem -> Eff Sem
+prim3op prim s1 s2 s3 = case s1 of
+  SemBase b1 -> eitherToError $ Eval.prim3op prim (VBase b1) s2 s3
   _ -> do
     e1 <- reify s1
     e2 <- reify s2
     e3 <- reify s3
-    e4 <- reify s4
-    return $ Syntax $ EPrim4 prim e1 e2 e3 e4
+    return $ Syntax $ EPrim3 prim e1 e2 e3
 
 eitherToError :: Either String Sem -> Eff Sem
 eitherToError = \case
   Left s -> Error s
   Right b -> return b
-
-
-trackInline :: Eff ()
-trackInline = Tick
 
 ----------------------------------------------------------------------
 
@@ -189,9 +171,8 @@ data Eff a where
   SetEnv :: Env -> Eff a -> Eff a
   Error :: String -> Eff a
   Fresh :: Eff Int
-  Tick :: Eff ()
+  TickApp :: Eff ()
   Io :: IO a -> Eff a
-
 
 data State = State { fresh :: Int, inlines :: Int }
 
@@ -213,8 +194,7 @@ run env eff =
       GetEnv -> return $ Right (env, s)
       SetEnv env e -> loop s env e
       Fresh -> return $ Right (fresh, s {fresh = fresh + 1})
-      Tick -> return $ Right ((),s {inlines = inlines + 1})
+      TickApp -> return $ Right ((),s {inlines = inlines + 1})
       Io io -> do x <- io; return $ Right (x, s)
-
 
 newtype Counts = Counts { beta :: Int } deriving Show

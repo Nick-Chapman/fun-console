@@ -1,8 +1,16 @@
 
 module Ast (
-  Def(..), Exp(..), Base(..), Bin(..), Prim1(..), Prim4(..),
-  prim1, greater, equalI, equalS, addition, subtraction, concatenation,
+  Def(..),
+  Exp(..),
+  Base(..),
+  Prim1(..),
+  Prim2(..),
+  Prim3(..),
+  env,
   ) where
+
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 
 ----------------------------------------------------------------------
 
@@ -14,87 +22,119 @@ data Exp
   = EBase Base
   | EVar String
   | ELam String Exp
-  | EBin Bin Exp Exp
-  | EPrim1 Prim1 Exp
-  | EPrim4 Prim4 Exp Exp Exp Exp
   | EApp Exp Exp
   | ELet String Exp Exp
+  | EPrim1 Prim1 Exp
+  | EPrim2 Prim2 Exp Exp
+  | EPrim3 Prim3 Exp Exp Exp
 
 data Base
   = BNum Int
   | BStr String
+  | BBool Bool
   deriving (Eq)
 
-data Bin
-  = Add | Sub | Hat
-  -- | Gri2 | Eqi2 | Eqs2
+data Prim2
+  = Add | Sub | Mul | Hat
+  | Eqi2 | Eqs2
+  | Less2 | Leq2
+  deriving Show
 
 data Prim1 = I2S | PrimErr deriving (Show)
 
-data Prim4 = Greater | Eqs4 | Eqi4
-  deriving (Show)
+data Prim3 = If3 deriving (Show)
+
+----------------------------------------------------------------------
+
+env :: Map String Exp
+env = Map.fromList
+  [ ("+", Ast.add)
+  , ("-", Ast.sub)
+  , ("*", Ast.mul)
+  , ("^", Ast.hat)
+
+  , ("==", Ast.eqi)
+  , ("===", Ast.eqs)
+  , ("int2string", Ast.int2string)
+  , ("error", Ast.primErr)
+
+  , ("true", Ast.trueE)
+  , ("false", Ast.falseE)
+  , ("if", Ast.if3)
+
+  , ("<", Ast.less)
+  , ("<=", Ast.leq)
+
+  -- TODO: code as non-primitives (need parser support to use symbolic identifiers in parens)
+  , (">", Ast.greater)
+  , (">=", Ast.geq)
+
+  ]
 
 ----------------------------------------------------------------------
 
 trueE,falseE :: Exp
-trueE = ELam "x" (ELam "y" (EVar "x"))
-falseE = ELam "x" (ELam "y" (EVar "y"))
+eqi,eqs,greater,less,leq,geq :: Exp
+add,sub,mul,hat :: Exp
+primErr,int2string :: Exp
+if3 :: Exp
 
-greater :: Exp -> Exp -> Exp
-greater a b = EPrim4 Greater a b trueE falseE
+trueE = EBase $ BBool True
+falseE = EBase $ BBool False
 
-equalS :: Exp -> Exp -> Exp
-equalS a b = EPrim4 Eqs4 a b trueE falseE
+add = ELam "x" (ELam "y" (EPrim2 Add (EVar "x") (EVar "y")))
+sub = ELam "x" (ELam "y" (EPrim2 Sub (EVar "x") (EVar "y")))
+mul = ELam "x" (ELam "y" (EPrim2 Mul (EVar "x") (EVar "y")))
+hat = ELam "x" (ELam "y" (EPrim2 Hat (EVar "x") (EVar "y")))
 
-equalI :: Exp -> Exp -> Exp
-equalI a b = EPrim4 Eqi4 a b trueE falseE
+eqi = ELam "x" (ELam "y" (EPrim2 Eqi2 (EVar "x") (EVar "y")))
+eqs = ELam "x" (ELam "y" (EPrim2 Eqs2 (EVar "x") (EVar "y")))
 
-mkBin :: Bin -> Exp
-mkBin bin = ELam "x" (ELam "y" (EBin bin (EVar "x") (EVar "y")))
+less    = ELam "x" (ELam "y" (EPrim2 Less2 (EVar "x") (EVar "y")))
+leq     = ELam "x" (ELam "y" (EPrim2 Leq2  (EVar "x") (EVar "y")))
+greater = ELam "x" (ELam "y" (EPrim2 Less2 (EVar "y") (EVar "x")))
+geq     = ELam "x" (ELam "y" (EPrim2 Leq2  (EVar "y") (EVar "x")))
 
-add,sub,hat::Exp
-add = mkBin Add
-sub = mkBin Sub
-hat = mkBin Hat
+primErr    = ELam "x" (EPrim1 PrimErr (EVar "x"))
+int2string = ELam "x" (EPrim1 I2S (EVar "x"))
 
-addition :: Exp -> Exp -> Exp
-addition x y = EApp (EApp add x) y
+if3 = ELam "b" (EPrim3 If3 (EVar "b") ktrueE kfalseE)
 
-subtraction :: Exp -> Exp -> Exp
-subtraction x y = EApp (EApp sub x) y
-
-concatenation :: Exp -> Exp -> Exp
-concatenation x y = EApp (EApp hat x) y
-
-prim1 :: Prim1 -> Exp
-prim1 prim = let x = "x" in ELam x (EPrim1 prim (EVar x))
-
+ktrueE,kfalseE :: Exp
+ktrueE = ELam "t" (ELam "f" (EVar "t"))
+kfalseE = ELam "t" (ELam "f" (EVar "f"))
 
 ----------------------------------------------------------------------
 
+-- TODO: reduce brackets, as this is shown when normalizing
 instance Show Exp where
   show = \case
     EBase v -> "(" ++ show v ++ ")"
     EVar s -> s
-    EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
     ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
-    EBin bin e1 e2 -> "(" ++ show e1 ++ show bin ++ show e2 ++ ")"
-    EPrim1 prim e1 -> "(" ++ show prim ++ " " ++ show e1 ++ ")"
-    EPrim4 prim e1 e2 e3 e4 ->
-      "(" ++ show prim ++ " " ++ show e1 ++ " " ++ show e2 ++
-      " " ++ show e3 ++ " " ++ show e4 ++ ")"
+    EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
     ELet x e1 e2 -> "(let " ++ x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
+    EPrim1 prim e1 -> "(#" ++ show prim ++ " " ++ show e1 ++ ")"
+    EPrim2 prim e1 e2 -> "(#" ++ show prim ++ " " ++ show e1 ++ " " ++ show e2 ++ ")"
+--  EPrim2 prim e1 e2 -> "(" ++ show e1 ++ show prim ++ show e2 ++ ")"
+    EPrim3 prim e1 e2 e3 ->
+      "(#" ++ show prim ++ " " ++ show e1 ++ " " ++ show e2 ++
+      " " ++ show e3 ++ ")"
 
 instance Show Base where
   show = \case
     BNum i -> show i
     BStr s -> show s
+    BBool b -> show b
 
-instance Show Bin where
+{-instance Show Prim2 where
   show = \case
     Add -> "+"
     Sub -> "-"
+    Mul -> "*"
     Hat -> "^"
---    Gri2 -> ">"
---    Eqi2 -> "=="
---    Eqs2 -> "==="
+    Eqi2 -> "=="
+    Eqs2 -> "==="
+    Less2 -> "<"
+    Leq2 -> "<="
+-}

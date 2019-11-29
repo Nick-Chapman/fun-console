@@ -15,10 +15,10 @@ verr s = \e n c. e s
 vnum x = \e n c. n x
 vclose x env body = \e n c. c x env body
 
-show v = v (\s. "error: " ^ s) (\n. "number:" ^ primInt2String n) (\_ _ _. "closure")
+show v = v (\s. "error: " ^ s) (\n. "number:" ^ int2string n) (\_ _ _. "closure")
 
 empty = \x . verr ("no binding for: " ^ x)
-extend k v env = \x. (x===k) v (env x)
+extend k v env = \x. if (x===k) v (env x)
 lookup k env = env k
 
 appErr _ = verr "apply: expected closure for arg1"

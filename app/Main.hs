@@ -3,7 +3,8 @@ module Main (main) where
 
 import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
-import Ast (Exp(..),Def(..),Base(..))
+--import Ast (Exp(..))
+import Ast (Def(..),Base(..))
 import Eval (Value(..),Eff,countsWorsen)
 import Parse (parseDef)
 import System.Environment (getArgs)
@@ -115,12 +116,13 @@ pep Conf{verbose} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv
 
     Right (Just (Left (Def name exp))) -> do
       put line
+      when verbose $ putStrLn $ "ORIG-> " <> (col AN.Magenta $ show exp)
       Norm.normalize normalizationEnv exp >>= \case
         Left s -> do
           putStrLn $ col AN.Red $ "error during normalization: " <> s
           return Nothing
         Right (exp',Norm.Counts{Norm.beta}) -> do
-          if beta>0 then putStrLn $ col AN.Blue $ "(beta:" <> show beta <> ")" else return ()
+          if beta>0 then putStrLn $ col AN.Cyan $ "(beta:" <> show beta <> ")" else return ()
           when verbose $ putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
           return $ Just $ env
             { evaluationEnv = Map.insert name (Eval.eval exp) evaluationEnv
@@ -131,15 +133,15 @@ pep Conf{verbose} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv
       put line
 
       (value1,counts1) <- Eval.run evaluationEnv (Eval.eval exp)
-      printValue (AN.Cyan,AN.Cyan) counts1 value1
+      when verbose $ printValue (AN.Blue,AN.Blue) counts1 value1
 
       (value2,counts2) <- Eval.run evaluationEnv2 (Eval.eval exp)
-      let col1 = (if exceptFun value2 /= exceptFun value1 then AN.Red else AN.Blue)
-      let col2 = (if countsWorsen counts1 counts2 then AN.Red else AN.Blue)
+      let col1 = (if exceptFun value2 /= exceptFun value1 then AN.Red else AN.Cyan)
+      let col2 = (if countsWorsen counts1 counts2 then AN.Red else AN.Cyan)
       printValue (col1,col2) counts2 value2
-
+{-
       case exceptFun value2 of
-        Nothing -> return Nothing
+        Nothing -> return ()
         Just e1 -> do
           n <- Norm.normalize normalizationEnv exp
           let mE2 =
@@ -149,8 +151,10 @@ pep Conf{verbose} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv
                   --Right (ECon (VBase base),_) -> Just (Right base)
                   Right (_,_) -> Nothing
           when (mE2 /= Just e1) $
-            putStrLn $ col AN.Red $ "base norm failed : " <> show n
-          return Nothing
+            putStrLn $ col AN.Red $ "base norm failed : " -- <> show n
+          return ()
+-}
+      return Nothing
 
 
 exceptFun :: Value -> Maybe (Either String Base)

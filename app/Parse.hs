@@ -7,7 +7,6 @@ import Ast (Exp(..),Def(..),Base(..))
 import Control.Monad(mfilter)
 import EarleyM (Gram,Lang,fail,alts,fix,produce,declare,getToken,many,skipWhile)
 import Prelude hiding (exp, fail, lookup, pred)
-import qualified Ast
 import qualified Data.Char as Char
 import qualified EarleyM as EM(parse,Parsing(..))
 
@@ -80,14 +79,11 @@ lang = do
             b <- right
             return (f a b)
 
-    let makeBinop a b = alts [
-            mkBin Ast.addition "+" a b,
-            mkBin Ast.subtraction "-" a b,
-            mkBin Ast.concatenation "^" a b,
-            mkBin Ast.greater ">" a b,
-            mkBin Ast.equalI "==" a b,
-            mkBin Ast.equalS "===" a b
-            ]
+    let mkBinOp c = mkBin (\x y -> EApp (EApp (EVar c) x) y) c
+
+    let infixOps = [ "+", "-", "*", "^", ">", "<", ">=", "<=", "==", "===" ]
+
+    let makeBinop a b = alts (map (\s -> mkBinOp s a b) infixOps)
 
     let mkLam exp = do
             symbol '\\'
@@ -136,7 +132,6 @@ lang = do
             ws; symbol '='
             ws; body <- exp
             return $ Def name (foldr ELam body args)
-
 
     let top = alts
           [ do d <- def; return $ Left d

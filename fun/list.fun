@@ -14,7 +14,7 @@ showB b = b (\u."true") (\u."false")
 zero = 0
 succ x = x+1
 add x y = x+y
-greater x y = (x>y) true false
+greater x y = if (x>y) true false
 showN n = n
 
 one = succ zero
