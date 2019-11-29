@@ -1,8 +1,10 @@
 
 module Main (main) where
 
+import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
-import Eval (Def(..),Value(..),Eff)
+import Ast (Exp(..),Def(..),Base(..))
+import Eval (Value(..),Eff,countsWorsen)
 import Parse (parseDef)
 import System.Environment (getArgs)
 import qualified Eval
@@ -22,11 +24,13 @@ main = do
 
 data Conf = Conf
   { funFile :: FilePath
+  , verbose :: Bool
   }
 
 defaultConf :: Conf
 defaultConf = Conf
   { funFile = ".history"
+  , verbose = False
   }
 
 parseArgs :: [String] -> Conf
@@ -34,13 +38,14 @@ parseArgs args = loop args defaultConf
   where
     loop args conf = case args of
       [] -> conf
+      "-v":rest -> loop rest $ conf { verbose = True }
       funFile:rest -> loop rest $ conf { funFile }
 
 start :: Conf -> HL.InputT IO ()
 start conf = do
   history <- lift $ readHistory conf
   HL.putHistory history
-  env <- lift $ replay env0 (HL.historyLines history)
+  env <- lift $ replay conf env0 (HL.historyLines history)
   repl conf 1 env
 
 
@@ -74,12 +79,12 @@ readHistory :: Conf -> IO HL.History
 readHistory Conf{funFile} = fmap revHistory $ HL.readHistory funFile
 
 -- replay .history lines
-replay :: Env -> [String] -> IO Env
-replay env = \case
+replay :: Conf -> Env -> [String] -> IO Env
+replay conf env = \case
   [] -> return env
   line:earlier -> do
-    env1 <- replay env earlier
-    pep putStrLn line env1 >>= \case
+    env1 <- replay conf env earlier
+    pep conf putStrLn line env1 >>= \case
       Nothing -> return env1
       Just env2 -> return env2
 
@@ -92,13 +97,13 @@ repl conf n env = do
       HL.modifyHistory (HL.addHistory line)
       HL.getHistory >>= lift . writeHistory conf
       let noput _ = return ()
-      lift (pep noput line env) >>= \case
+      lift (pep conf noput line env) >>= \case
         Nothing -> repl conf n env
         Just env' -> repl conf (n + 1) env'
 
 -- parse-eval-print
-pep :: (String -> IO ()) -> String -> Env -> IO (Maybe Env)
-pep put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
+pep :: Conf -> (String -> IO ()) -> String -> Env -> IO (Maybe Env)
+pep Conf{verbose} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
   case parseDef line of
 
     Left s -> do
@@ -116,7 +121,7 @@ pep put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
           return Nothing
         Right (exp',Norm.Counts{Norm.beta}) -> do
           if beta>0 then putStrLn $ col AN.Blue $ "(beta:" <> show beta <> ")" else return ()
-          --putStrLn $ "NORM-> " <> (col AN.Green $ show exp') --on flag?
+          when verbose $ putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
           return $ Just $ env
             { evaluationEnv = Map.insert name (Eval.eval exp) evaluationEnv
             , evaluationEnv2 = Map.insert name (Eval.eval exp') evaluationEnv2
@@ -124,16 +129,41 @@ pep put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
             }
     Right (Just (Right exp)) -> do
       put line
-      showEval AN.Cyan evaluationEnv exp
-      showEval AN.Blue evaluationEnv2 exp
-      return Nothing
 
-showEval :: AN.Color -> EE -> Eval.Exp -> IO ()
-showEval colour ee exp = do
-  (value,counts) <- Eval.run ee (Eval.eval exp)
-  case value of
-    VError s -> putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
-    v -> putStrLn $ col colour $ show v <> show counts
+      (value1,counts1) <- Eval.run evaluationEnv (Eval.eval exp)
+      printValue (AN.Cyan,AN.Cyan) counts1 value1
+
+      (value2,counts2) <- Eval.run evaluationEnv2 (Eval.eval exp)
+      let col1 = (if exceptFun value2 /= exceptFun value1 then AN.Red else AN.Blue)
+      let col2 = (if countsWorsen counts1 counts2 then AN.Red else AN.Blue)
+      printValue (col1,col2) counts2 value2
+
+      case exceptFun value2 of
+        Nothing -> return Nothing
+        Just e1 -> do
+          n <- Norm.normalize normalizationEnv exp
+          let mE2 =
+                case n of
+                  Left s -> Just (Left s)
+                  Right (EBase base,_) -> Just (Right base)
+                  --Right (ECon (VBase base),_) -> Just (Right base)
+                  Right (_,_) -> Nothing
+          when (mE2 /= Just e1) $
+            putStrLn $ col AN.Red $ "base norm failed : " <> show n
+          return Nothing
+
+
+exceptFun :: Value -> Maybe (Either String Base)
+exceptFun = \case
+  VError s -> Just (Left s)
+  VBase b -> Just (Right b)
+  VFun{} -> Nothing
+
+
+printValue :: (AN.Color,AN.Color) -> Eval.Counts -> Value -> IO ()
+printValue (c1,c2) counts = \case
+  VError s  -> putStrLn $ col AN.Red $ "eval error: " <> s <> show counts
+  v -> putStrLn $ col c1 (show v) <> col c2 (show counts)
 
 
 col :: AN.Color -> String -> String

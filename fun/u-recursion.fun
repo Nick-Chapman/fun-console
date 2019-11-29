@@ -19,3 +19,6 @@ show (fact (fact three))
 
 res = fact three
 res
+show res
+xx = show res
+xx

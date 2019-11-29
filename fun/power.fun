@@ -1,6 +1,7 @@
 
 u f = f f
-error _ = 999
+
+error _ = 999 -- TODO: investigate elim of this hack
 
 true = \t f. t u
 false = \t f. f u
@@ -29,6 +30,3 @@ showN (pow2 three)
 cube x = power x three
 cube three
 showN (cube three)
-
-res = showN (cube three)
-res

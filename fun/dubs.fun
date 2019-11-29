@@ -1,5 +1,5 @@
 dub x = x + x
 mul8 x = dub (dub (dub x))
-res = mul8 1
-res
-dub res
+
+mul8 11
+dub (mul8 11)

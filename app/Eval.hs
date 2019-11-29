@@ -1,74 +1,20 @@
 
 module Eval (
-  Def(..), Exp(..), Base(..), Bin(..), Prim1(..),
-  Value(..),
+  Value(..), binop, unop, prim4op,
   eval, Eff,
-  env0, run, Counts(..),
+  env0, run, Counts(..), countsWorsen,
   ) where
 
+import Ast
 import Control.Monad (ap,liftM,join)
-import Data.Map.Strict (Map)
 import Data.IORef
+import Data.Map.Strict (Map)
 import Prelude hiding (lookup)
 import qualified Data.Map.Strict as Map
-
-----------------------------------------------------------------------
-
-data Def =
-  Def String Exp
-  deriving (Show)
-
-data Exp
-  = EBase Base
-  | ECon Value
-  | EVar String
-  | ELam String Exp
-  | EBin Bin Exp Exp
-  | EPrim1 Prim1 Exp
-  | EApp Exp Exp
-  | ELet String Exp Exp
-
-data Base
-  = BNum Int
-  | BStr String
-
-data Bin = Add | Sub | Hat | Gri | Eqi | Eqs
-
-data Prim1 = I2S deriving (Show)
-
-----------------------------------------------------------------------
-
-instance Show Exp where
-  show = \case
-    EBase v -> "(" ++ show v ++ ")"
-    ECon v -> "(" ++ show v ++ ")"
-    EVar s -> s
-    EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
-    ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
-    EBin bin e1 e2 -> "(" ++ show e1 ++ show bin ++ show e2 ++ ")"
-    EPrim1 prim e1 -> "(" ++ show prim ++ show e1 ++ ")"
-    ELet x e1 e2 -> "(let " ++ x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
-
-instance Show Base where
-  show = \case
-    BNum i -> show i
-    BStr s -> show s
-
-instance Show Bin where
-  show = \case
-    Add -> "+"
-    Sub -> "-"
-    Hat -> "^"
-    Gri -> ">"
-    Eqi -> "=="
-    Eqs -> "==="
-
-----------------------------------------------------------------------
 
 eval :: Exp -> Eff Value
 eval = \case
   EBase bv -> return (VBase bv)
-  ECon v -> return v
   EVar s -> do
     env <- GetEnv
     case Map.lookup s env of
@@ -86,17 +32,22 @@ eval = \case
   EBin bin e1 e2 -> do
     v1 <- eval e1
     v2 <- eval e2
-    binop bin v1 v2
+    trackBin bin
+    return $ either2error $ fmap VBase $ binop bin v1 v2
   EPrim1 prim e1 -> do
     v1 <- eval e1
-    unop prim v1
-
+    return $ either2error $ fmap VBase $ unop prim v1
+  EPrim4 prim e1 e2 e3 e4 -> do
+    v1 <- eval e1
+    v2 <- eval e2
+    v3 <- eval e3
+    v4 <- eval e4
+    return $ either2error $ prim4op prim v1 v2 v3 v4
   ELet x rhs body -> do
 --    eval (EApp (ELam x body) rhs)
     v <- share (eval rhs)
     env <- GetEnv
     SetEnv (Map.insert x v env) $ eval body
-
 
 share :: Eff Value -> Eff (Eff Value)
 share arg = do
@@ -106,6 +57,11 @@ share arg = do
     Io $ writeIORef r (return v)
     return v
   return $ join $ Io $ readIORef r
+
+either2error :: Either String Value -> Value
+either2error = \case
+  Left s -> VError s
+  Right v -> v
 
 
 ----------------------------------------------------------------------
@@ -142,20 +98,15 @@ env0 :: Env
 env0 =
   foldr (uncurry Map.insert) Map.empty
   [ ("noinline", return $ VFun (EVar "_noinline_") $ \eff -> eff)
-  , ("primInt2String", return $ Eval.primInt2String)
+  , ("primInt2String", eval $ prim1 I2S)
+  , ("error", eval $ prim1 PrimErr)
   ]
-
-primInt2String :: Value
-primInt2String = VFun (EVar "_primInt2String_") $ \eff -> do
-  v <- eff
-  let exp :: Exp = ECon v
-  eval $ EPrim1 I2S exp
 
 ----------------------------------------------------------------------
 
 data Value
   = VBase Base
-  | VError String
+  | VError String -- TODO: move into Base?
   | VFun Exp (Eff Value -> Eff Value)
 
 instance Show Value where
@@ -176,50 +127,63 @@ apply = \case
     f v
   where
 
-unop :: Prim1 -> Value -> Eff Value
-unop = \case
-  I2S -> doUn (getNum "i2s-arg") noTrack (VBase . BStr . show)
 
-noTrack :: Eff ()
-noTrack = return ()
+prim4op :: Prim4 -> Value -> Value -> a -> a -> Either String a
+prim4op = \case
+  Greater -> \v1 v2 v3 v4 -> do
+    n1 <- getNum ">-L" v1
+    n2 <- getNum ">-R" v2
+    return $ if n1 > n2 then v3 else v4
 
-doUn :: (Value -> Hopefully a)
-     -> Eff ()
-     -> (a -> Value)
-     -> Value -> Eff Value
-doUn get1 track func = \v1 -> do
-  case get1 v1 of
-    Left s -> return $ VError s
-    Right arg -> do track; return $ func arg
+  Eqi4 -> \v1 v2 v3 v4 -> do
+    n1 <- getNum "==-L" v1
+    n2 <- getNum "==-R" v2
+    return $ if n1 == n2 then v3 else v4
 
+  Eqs4 -> \v1 v2 v3 v4 -> do
+    n1 <- getStr "===-L" v1
+    n2 <- getStr "===-R" v2
+    return $ if n1 == n2 then v3 else v4
 
-binop :: Bin -> Value -> Value -> Eff Value
-binop = \case
-  Add -> doBin (getNum "+L") (getNum "+R") trackAdd (VBase . BNum . uncurry (+))
-  Sub -> doBin (getNum "-L") (getNum "-R") trackSub (VBase . BNum . uncurry (-))
-  Hat -> doBin (getStr "^L") (getStr "^R") trackHat (VBase . BStr . uncurry (<>))
-  Gri -> doBin (getNum ">L") (getNum ">R") noTrack (boolV . uncurry (>))
-  Eqi -> doBin (getNum "==L") (getNum "==R") noTrack (boolV . uncurry (==))
-  Eqs -> doBin (getStr "===L") (getStr "===R") noTrack (boolV . uncurry (==))
-
-boolV :: Bool -> Value
-boolV b = VFun (EVar "_if1_") $ \t -> return $ VFun (EVar "_if2_") $ \f -> if b then t else f
 
 type Hopefully = Either String
 
+unop :: Prim1 -> Value -> Hopefully Base
+unop = \case
+  I2S -> doUn (getNum "i2s-arg") (Right . BStr . show)
+  PrimErr -> doUn (getStr "error-arg") (\s -> Left $ "error:" <> s)
+
+doUn :: (Value -> Hopefully a)
+     -> (a -> Hopefully Base)
+     -> Value -> Hopefully Base
+doUn get1 func = \v1 -> do
+  case get1 v1 of
+    Left s -> Left s
+    Right arg -> func arg
+
+binop :: Bin -> Value -> Value -> Hopefully Base
+binop = \case
+  Add -> doBin (getNum "+L") (getNum "+R") (BNum . uncurry (+))
+  Sub -> doBin (getNum "-L") (getNum "-R") (BNum . uncurry (-))
+  Hat -> doBin (getStr "^L") (getStr "^R") (BStr . uncurry (<>))
+--  Gri2 -> doBin (getNum ">L") (getNum ">R") (boolV . uncurry (>))
+--  Eqi2 -> doBin (getNum "==L") (getNum "==R") (boolV . uncurry (==))
+--  Eqs2 -> doBin (getStr "===L") (getStr "===R") (boolV . uncurry (==))
+
 doBin :: (Value -> Hopefully a)
       -> (Value -> Hopefully b)
-      -> Eff ()
-      -> ((a,b) -> Value)
-      -> Value -> Value -> Eff Value
-doBin get1 get2 track func = \v1 v2 -> do
+      -> ((a,b) -> Base)
+      -> Value -> Value -> Hopefully Base
+doBin get1 get2 func = \v1 v2 -> do
   let getBoth = do
         g1 <- get1 v1
         g2 <- get2 v2
         return (g1,g2)
   case getBoth of
-    Left s -> return $ VError s
-    Right (g1,g2) -> do track; return $ func (g1,g2)
+    --Left s -> Right $ VError s
+    Left s -> Left s
+    Right (g1,g2) -> Right $ func (g1,g2)
+
 
 getNum :: String -> Value -> Hopefully Int
 getNum tag = \case
@@ -237,6 +201,12 @@ getStr tag = \case
 
 
 ----------------------------------------------------------------------
+
+trackBin :: Bin -> Eff ()
+trackBin = \case
+  Add -> trackAdd
+  Sub -> trackSub
+  Hat -> trackHat
 
 trackAdd, trackSub, trackHat, trackApp :: Eff ()
 trackAdd = Tick $ \c -> c {adds = adds c + 1}
@@ -260,3 +230,10 @@ instance Show Counts where
     ", subs:" <> show subs <>
     ", hats:" <> show hats <>
     ", apps:" <> show apps <> ")"
+
+countsWorsen :: Counts -> Counts -> Bool
+countsWorsen c1 c2 =
+  adds c2 > adds c1 ||
+  subs c2 > subs c1 ||
+  hats c2 > hats c1 ||
+  apps c2 > apps c1

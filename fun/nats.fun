@@ -1,3 +1,6 @@
+
+-- example uses y, so must prevent inlining, or else we are bottom at norm-time
+
 y f = noinline (\x. f (x x)) (\x. f (x x))
 err = y \x.x
 nil n c = n

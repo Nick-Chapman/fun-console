@@ -4,12 +4,18 @@ module Norm (
   env0, normalize, Counts(..),
   ) where
 
+import Ast (Bin,Exp(..),Prim1(..),Prim4(..),Base)
 import Control.Monad (ap,liftM)
 import Data.Map.Strict (Map)
-import Eval(Bin,Exp(..),Prim1)
+import Eval(Value(VBase))
 import Prelude hiding (lookup)
+import qualified Ast
 import qualified Data.Map.Strict as Map
+import qualified Eval
 
+
+noLets :: Bool
+noLets = False -- TODO: flag?
 
 normalize :: Env -> Exp -> IO (Either String (Exp,Counts))
 normalize env exp = run env (norm exp >>= reify)
@@ -17,23 +23,44 @@ normalize env exp = run env (norm exp >>= reify)
 
 type Env = Map String (Eff Sem)
 
+opaque :: String -> (String, Eff Sem)
+opaque name = (name, return $ Syntax $ EVar name)
+
 env0 :: Env
-env0 = foldr Norm.preDefined Map.empty predefined
-
-preDefined :: String -> Env -> Env
-preDefined name env = Map.insert name (return $ Syntax $ EVar name) env
-
-predefined :: [String]
-predefined = ["noinline","primInt2String","error"]
+env0 = Map.fromList
+  [ ("primInt2String", norm $ Ast.prim1 I2S)
+  , ("error", norm $ Ast.prim1 PrimErr)
+  , opaque "noinline"
+--  , opaque "error"
+  ]
 
 
 inlineLam :: Bool
 inlineLam = True
 
+
+data Sem
+  = Syntax Exp
+  | Macro (Sem -> Eff Sem)
+  | SemBase Base
+
+
+reify :: Sem -> Eff Exp
+reify = \case
+  Syntax exp -> return exp
+  SemBase b -> return $ EBase b
+  Macro f -> do
+    n <- Fresh
+    let x = "u" <> show n
+    body <- f (Syntax (EVar x)) >>= reify
+    return $ ELam x body
+
+
 norm :: Exp -> Eff Sem
 norm = \case
-  EBase bv -> return $ Syntax $ EBase bv
-  ECon v -> return $ Syntax $ ECon v
+
+  EBase b -> return $ SemBase b
+
   EVar s -> do
     env <- GetEnv
     case Map.lookup s env of
@@ -66,70 +93,85 @@ norm = \case
     s1 <- norm e1
     unop prim s1
 
+  EPrim4 prim e1 e2 e3 e4 -> do
+    s1 <- norm e1
+    s2 <- norm e2
+    s3 <- norm e3
+    s4 <- norm e4
+    prim4op prim s1 s2 s3 s4
+
   ELet x e1 e2 ->
     norm (EApp (ELam x e2) e1)
 
 
 apply :: Sem -> Sem -> Eff Sem
 apply = \case
-  Syntax fun -> \a -> do
-    arg <- reify a
-    return $ Syntax $ EApp fun arg
-
   Macro f -> \a -> do
     trackInline
     --Io $ putStr "#"
 
-    if isAtomic a then f a else do
+    if noLets || isAtomic a then f a else do
       arg <- reify a
       n <- Fresh
       let x = "u" <> show n
       continuation <- f (Syntax (EVar x)) >>= reify
       return $ Syntax $ ELet x arg continuation
 
+  f -> \a -> do
+    fun <- reify f
+    arg <- reify a
+    return $ Syntax $ EApp fun arg
+
 
 isAtomic :: Sem -> Bool
 isAtomic = \case
   Macro _ -> True
+  SemBase _ -> True
   Syntax exp -> isAtomicExp exp
 
 isAtomicExp :: Exp -> Bool
 isAtomicExp = \case
   EBase{}  -> True
-  ECon{}   -> True
   EVar{}   -> True
 
   ELam{}   -> False
   EBin{}   -> False
   EPrim1{} -> False
+  EPrim4{} -> False
   EApp{}   -> False
   ELet{}   -> False
 
 
 unop :: Prim1 -> Sem -> Eff Sem
-unop prim s1 = do
-  e1 <- reify s1
-  return $ Syntax $ EPrim1 prim e1
+unop prim = \case
+  SemBase b1 -> eitherToError $ fmap SemBase $ Eval.unop prim (VBase b1)
+  s1 -> do
+    e1 <- reify s1
+    return $ Syntax $ EPrim1 prim e1
 
 binop :: Bin -> Sem -> Sem -> Eff Sem
-binop bin s1 s2 = do
-  e1 <- reify s1
-  e2 <- reify s2
-  return $ Syntax $ EBin bin e1 e2
+binop bin s1 s2 = case (s1,s2) of
+  (SemBase b1, SemBase b2) -> eitherToError $ fmap SemBase $ Eval.binop bin (VBase b1) (VBase b2)
+  _ -> do
+    e1 <- reify s1
+    e2 <- reify s2
+    return $ Syntax $ EBin bin e1 e2
 
+prim4op :: Prim4 -> Sem -> Sem -> Sem -> Sem -> Eff Sem
+prim4op prim s1 s2 s3 s4 = case (s1,s2) of
+  (SemBase b1, SemBase b2) -> eitherToError $ Eval.prim4op prim (VBase b1) (VBase b2) s3 s4
+  _ -> do
+    e1 <- reify s1
+    e2 <- reify s2
+    e3 <- reify s3
+    e4 <- reify s4
+    return $ Syntax $ EPrim4 prim e1 e2 e3 e4
 
-data Sem
-  = Syntax Exp
-  | Macro (Sem -> Eff Sem)
+eitherToError :: Either String Sem -> Eff Sem
+eitherToError = \case
+  Left s -> Error s
+  Right b -> return b
 
-reify :: Sem -> Eff Exp
-reify = \case
-  Syntax exp -> return exp
-  Macro f -> do
-    n <- Fresh
-    let x = "u" <> show n
-    body <- f (Syntax (EVar x)) >>= reify
-    return $ ELam x body
 
 trackInline :: Eff ()
 trackInline = Tick
@@ -175,4 +217,4 @@ run env eff =
       Io io -> do x <- io; return $ Right (x, s)
 
 
-newtype Counts = Counts { beta :: Int }
+newtype Counts = Counts { beta :: Int } deriving Show

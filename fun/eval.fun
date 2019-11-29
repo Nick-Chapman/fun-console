@@ -44,6 +44,5 @@ evalTop (var "hey")
 evalTop (bin (num 42) (num 11))
 evalTop (lam "foo" (var "foo"))
 evalTop (app (num 1) (num 2))
-evalTop (app (lam "foo" (var "foo")) (num 9))
-evalTop (app (lam "foo" (var "foo")) (num 9))
+evalTop (app (lam "xx" (var "xx")) (num 9))
 evalTop prog1

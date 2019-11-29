@@ -18,3 +18,4 @@ show (fact (fact three))
 
 res = fact three
 res
+show res

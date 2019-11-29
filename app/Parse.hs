@@ -3,14 +3,13 @@ module Parse(
   parseDef
   ) where
 
+import Ast (Exp(..),Def(..),Base(..))
 import Control.Monad(mfilter)
-import Prelude hiding (exp, fail, lookup, pred)
-
-import qualified Data.Char as Char
-
 import EarleyM (Gram,Lang,fail,alts,fix,produce,declare,getToken,many,skipWhile)
+import Prelude hiding (exp, fail, lookup, pred)
+import qualified Ast
+import qualified Data.Char as Char
 import qualified EarleyM as EM(parse,Parsing(..))
-import Eval (Exp(..),Def(..),Base(..),Bin(..))
 
 type Hopefully = Either String
 
@@ -82,12 +81,12 @@ lang = do
             return (f a b)
 
     let makeBinop a b = alts [
-            mkBin (EBin Add) "+" a b,
-            mkBin (EBin Sub) "-" a b,
-            mkBin (EBin Hat) "^" a b,
-            mkBin (EBin Gri) ">" a b,
-            mkBin (EBin Eqi) "==" a b,
-            mkBin (EBin Eqs) "===" a b
+            mkBin Ast.addition "+" a b,
+            mkBin Ast.subtraction "-" a b,
+            mkBin Ast.concatenation "^" a b,
+            mkBin Ast.greater ">" a b,
+            mkBin Ast.equalI "==" a b,
+            mkBin Ast.equalS "===" a b
             ]
 
     let mkLam exp = do
