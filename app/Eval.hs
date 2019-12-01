@@ -44,19 +44,6 @@ eval = \case
     vfun <- eval fun
     env <- GetEnv
     apply vfun arg (SetEnv env $ eval arg)
-{-  EPrim1 prim e1 -> do
-    v1 <- eval e1
-    return $ either2error $ fmap VBase $ prim1op prim v1
-  EPrim2 prim e1 e2 -> do
-    v1 <- eval e1
-    v2 <- eval e2
-    trackPrim2 prim
-    return $ either2error $ fmap VBase $ prim2op prim v1 v2
-  EPrim3 prim e1 e2 e3 -> do
-    v1 <- eval e1
-    v2 <- eval e2
-    v3 <- eval e3
-    return $ either2error $ prim3op prim v1 v2 v3-}
   ELet x rhs body -> do
 --    eval (EApp (ELam x body) rhs)
     v <- share (eval rhs)

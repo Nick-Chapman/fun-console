@@ -74,20 +74,6 @@ norm = \case
     funS <- norm fun
     argS <- norm arg
     apply funS argS
-{-
-  EPrim2 prim e1 e2 -> do
-    s1 <- norm e1
-    s2 <- norm e2
-    prim2op prim s1 s2
-  EPrim1 prim e1 -> do
-    s1 <- norm e1
-    prim1op prim s1
-  EPrim3 prim e1 e2 e3 -> do
-    s1 <- norm e1
-    s2 <- norm e2
-    s3 <- norm e3
-    prim3op prim s1 s2 s3
--}
 
   ELet x e1 e2 ->
     norm (EApp (ELam x e2) e1)
@@ -134,9 +120,6 @@ isAtomicExp = \case
   EBase{}  -> True
   EVar{}   -> True
   ELam{}   -> False
---  EPrim1{} -> False
---  EPrim2{} -> False
---  EPrim3{} -> False
   EApp{}   -> False
   ELet{}   -> False
 
@@ -145,7 +128,6 @@ prim1op prim = \case
   SemBase b1 -> eitherToError $ fmap SemBase $ Eval.prim1op prim (VBase b1)
   s1 -> do
     e1 <- reify s1
-    --return $ Syntax $ EPrim1 prim e1
     return $ Syntax $ EApp (EBase (BPrim1 prim)) e1
 
 prim2op :: Prim2 -> Sem -> Sem -> Eff Sem
@@ -154,7 +136,6 @@ prim2op prim s1 s2 = case (s1,s2) of
   _ -> do
     e1 <- reify s1
     e2 <- reify s2
-    --return $ Syntax $ EPrim2 prim e1 e2
     return $ Syntax $ EApp (EApp (EBase $ BPrim2 prim) e1) e2
 
 prim3op :: Prim3 -> Sem -> Sem -> Sem -> Eff Sem
@@ -164,7 +145,6 @@ prim3op prim s1 s2 s3 = case s1 of
     e1 <- reify s1
     e2 <- reify s2
     e3 <- reify s3
-    --return $ Syntax $ EPrim3 prim e1 e2 e3
     return $ Syntax $ EApp (EApp (EApp (EBase $ BPrim3 prim) e1) e2) e3
 
 eitherToError :: Either String Sem -> Eff Sem

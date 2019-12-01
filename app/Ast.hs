@@ -24,9 +24,6 @@ data Exp
   | ELam String Exp
   | EApp Exp Exp
   | ELet String Exp Exp
---  | EPrim1 Prim1 Exp
---  | EPrim2 Prim2 Exp Exp
---  | EPrim3 Prim3 Exp Exp Exp
 
 data Base
   = BNum Int
@@ -98,34 +95,10 @@ geq = EBase $ BPrim2 Geq2
 trueE = EBase $ BBool True
 falseE = EBase $ BBool False
 
---add = ELam "x" (ELam "y" (EPrim2 Add (EVar "x") (EVar "y")))
---sub = ELam "x" (ELam "y" (EPrim2 Sub (EVar "x") (EVar "y")))
---mul = ELam "x" (ELam "y" (EPrim2 Mul (EVar "x") (EVar "y")))
---hat = ELam "x" (ELam "y" (EPrim2 Hat (EVar "x") (EVar "y")))
-
---eqi = ELam "x" (ELam "y" (EPrim2 Eqi2 (EVar "x") (EVar "y")))
---eqs = ELam "x" (ELam "y" (EPrim2 Eqs2 (EVar "x") (EVar "y")))
-
---less    = ELam "x" (ELam "y" (EPrim2 Less2 (EVar "x") (EVar "y")))
---leq     = ELam "x" (ELam "y" (EPrim2 Leq2  (EVar "x") (EVar "y")))
---greater = ELam "x" (ELam "y" (EPrim2 Less2 (EVar "y") (EVar "x")))
---geq     = ELam "x" (ELam "y" (EPrim2 Leq2  (EVar "y") (EVar "x")))
-
---primErr    = ELam "x" (EPrim1 PrimErr (EVar "x"))
---int2string = ELam "x" (EPrim1 I2S (EVar "x"))
-
 primErr    = EBase $ BPrim1 PrimErr
 int2string = EBase $ BPrim1 I2S
 
 if3 = EBase $ BPrim3 If3
-
-{-
-_if3 = ELam "b" (EPrim3 If3 (EVar "b") ktrueE kfalseE)
-
-ktrueE,kfalseE :: Exp
-ktrueE = ELam "t" (ELam "f" (EVar "t"))
-kfalseE = ELam "t" (ELam "f" (EVar "f"))
--}
 
 ----------------------------------------------------------------------
 
@@ -137,13 +110,6 @@ instance Show Exp where
     ELam s body -> "(\\" ++ s ++ "." ++ show body ++ ")"
     EApp e1 e2 -> "(" ++ show e1 ++ " " ++ show e2 ++ ")"
     ELet x e1 e2 -> "(let " ++ x ++ " = " ++ show e1 ++ " in " ++ show e2 ++ ")"
---    EPrim1 prim e1 -> "(#" ++ show prim ++ " " ++ show e1 ++ ")"
---    EPrim2 prim e1 e2 -> "(#" ++ show prim ++ " " ++ show e1 ++ " " ++ show e2 ++ ")"
---  EPrim2 prim e1 e2 -> "(" ++ show e1 ++ show prim ++ show e2 ++ ")"
-{-    EPrim3 prim e1 e2 e3 ->
-      "(#" ++ show prim ++ " " ++ show e1 ++ " " ++ show e2 ++
-      " " ++ show e3 ++ ")"
--}
 
 instance Show Base where
   show = \case

@@ -161,7 +161,6 @@ pep Conf{verbose,normCheck} put line env@Env{evaluationEnv,evaluationEnv2,normal
                   case n of
                     Left s -> Just (Left s)
                     Right (EBase base,_) -> Just (Right base)
-                    --Right (ECon (VBase base),_) -> Just (Right base)
                     Right (_,_) -> Nothing
             when (mE2 /= Just e1) $
               putStrLn $ col AN.Red $ "base norm failed : " <> show n
