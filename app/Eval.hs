@@ -19,7 +19,7 @@ type Env = Map String (Eff Value)
 
 env0 :: Env
 env0 =
-  Map.fromList [ ("noinline", return $ VFun (EVar "_noinline_") $ \eff -> eff) ]
+  Map.fromList [ ("noinline", return $ VFun $ \_ eff -> eff) ]
   <> Map.map eval Ast.env
 
 ----------------------------------------------------------------------
@@ -32,16 +32,19 @@ eval = \case
     case Map.lookup s env of
       Nothing -> return $ VError $ "unknown var: " <> s
       Just v -> v
-  exp@(ELam x body) -> do
+  _exp@(ELam x body) -> do
     env <- GetEnv
-    return $ VFun exp $ \arg -> do
+    return $ VFun $ \_argE arg -> do
+      trackApp
+      --Io $ putStr "@"
+      --Io $ putStrLn $ show _exp <> " @ " <> show _argE
       arg' <- share arg
       SetEnv (Map.insert x arg' env) $ eval body
   EApp fun arg -> do
     vfun <- eval fun
     env <- GetEnv
-    apply vfun (SetEnv env $ eval arg)
-  EPrim1 prim e1 -> do
+    apply vfun arg (SetEnv env $ eval arg)
+{-  EPrim1 prim e1 -> do
     v1 <- eval e1
     return $ either2error $ fmap VBase $ prim1op prim v1
   EPrim2 prim e1 e2 -> do
@@ -53,7 +56,7 @@ eval = \case
     v1 <- eval e1
     v2 <- eval e2
     v3 <- eval e3
-    return $ either2error $ prim3op prim v1 v2 v3
+    return $ either2error $ prim3op prim v1 v2 v3-}
   ELet x rhs body -> do
 --    eval (EApp (ELam x body) rhs)
     v <- share (eval rhs)
@@ -105,25 +108,42 @@ run = loop counts0
 data Value
   = VBase Base
   | VError String -- TODO: move into Base?
-  | VFun Exp (Eff Value -> Eff Value)
+  | VFun (Exp -> Eff Value -> Eff Value)
 
 instance Show Value where
   show = \case
     VBase b -> show b
     VError s -> "error: " <> s
-    --VFun exp _ -> "<function: " <> show exp <> ">"
-    VFun _ _ -> "<function>"
+    VFun{} -> "<function>"
 
-apply :: Value -> Eff Value -> Eff Value
+apply :: Value -> Exp -> Eff Value -> Eff Value
 apply = \case
-  VBase base -> \_ -> return $ VError $ "cant apply a base-value as a function: " <> show base
-  e@(VError _) -> \_ -> return e
-  VFun _exp f -> \v -> do
-    trackApp
-    --Io $ putStr "@"
-    --Io $ putStrLn $ "@" <> show _exp
-    f v
-  where
+
+  VBase (BPrim1 prim) -> \_ arg1 -> do
+    v1 <- arg1
+    --trackPrim1 prim
+    return $ either2error $ fmap VBase $ prim1op prim v1
+
+  VBase (BPrim2 prim) -> \_ arg1 ->
+    return $ VFun $ \_ arg2 -> do
+      v1 <- arg1
+      v2 <- arg2
+      trackPrim2 prim
+      return $ either2error $ fmap VBase $ prim2op prim v1 v2
+
+  VBase (BPrim3 prim) -> \_ arg1 ->
+    return $ VFun $ \_ arg2 -> do
+      return $ VFun $ \_ arg3 -> do
+        v1 <- arg1
+        v2 <- arg2
+        v3 <- arg3
+        --trackPrim3 prim
+        return $ either2error $ prim3op prim v1 v2 v3
+
+  VBase base -> \_ _ -> return $ VError $ "cant apply a base-value as a function: " <> show base
+  e@(VError _) -> \_ _-> return e
+  VFun f -> \arg v -> do
+    f arg v
 
 type Hopefully = Either String
 
@@ -150,6 +170,8 @@ prim2op = \case
   Eqs2 -> doPrim2 (getStr "===L") (getStr "===R") (BBool . uncurry (==))
   Less2 -> doPrim2 (getNum "<L") (getNum "<R") (BBool . uncurry (<))
   Leq2 -> doPrim2 (getNum "<=L") (getNum "<=R") (BBool . uncurry (<=))
+  Greater2 -> doPrim2 (getNum ">L") (getNum ">R") (BBool . uncurry (>))
+  Geq2 -> doPrim2 (getNum ">=L") (getNum ">=R") (BBool . uncurry (>=))
 
 doPrim2 :: (Value -> Hopefully a)
       -> (Value -> Hopefully b)
@@ -175,7 +197,10 @@ getNum tag = \case
   VBase (BNum n) -> Right n
   VBase (BStr _) -> Left $ tag <> " : expected Num, got String"
   VBase (BBool _) -> Left $ tag <> " : expected Num, got Bool"
-  VFun _ _ -> Left $ tag <> " : expected Num, got Function"
+  VBase (BPrim1 _) -> Left $ tag <> " : expected Num, got prim1"
+  VBase (BPrim2 _) -> Left $ tag <> " : expected Num, got prim2"
+  VBase (BPrim3 _) -> Left $ tag <> " : expected Num, got prim3"
+  VFun _ -> Left $ tag <> " : expected Num, got Function"
   VError s -> Left s
 
 getStr :: String -> Value -> Hopefully String
@@ -183,7 +208,10 @@ getStr tag = \case
   VBase (BNum _) -> Left $ tag <> " : expected String, got Num"
   VBase (BStr s) -> Right s
   VBase (BBool _) -> Left $ tag <> " : expected String, got Bool"
-  VFun _ _ -> Left $ tag <> " : expected Str, got Function"
+  VBase (BPrim1 _) -> Left $ tag <> " : expected String, got prim1"
+  VBase (BPrim2 _) -> Left $ tag <> " : expected String, got prim2"
+  VBase (BPrim3 _) -> Left $ tag <> " : expected String, got prim3"
+  VFun _ -> Left $ tag <> " : expected Str, got Function"
   VError s -> Left s
 
 getBool :: String -> Value -> Hopefully Bool
@@ -191,7 +219,10 @@ getBool tag = \case
   VBase (BNum _) -> Left $ tag <> " : expected Bool, got Num"
   VBase (BStr _) -> Left $ tag <> " : expected Bool, got String"
   VBase (BBool b) -> Right b
-  VFun _ _ -> Left $ tag <> " : expected Bool, got Function"
+  VBase (BPrim1 _) -> Left $ tag <> " : expected Bool, got prim1"
+  VBase (BPrim2 _) -> Left $ tag <> " : expected Bool, got prim2"
+  VBase (BPrim3 _) -> Left $ tag <> " : expected Bool, got prim3"
+  VFun _ -> Left $ tag <> " : expected Bool, got Function"
   VError s -> Left s
 
 ----------------------------------------------------------------------

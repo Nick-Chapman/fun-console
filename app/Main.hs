@@ -3,7 +3,7 @@ module Main (main) where
 
 import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
---import Ast (Exp(..))
+import Ast (Exp(..))
 import Ast (Def(..),Base(..))
 import Eval (Value(..),Eff,countsWorsen)
 import Parse (parseDef)
@@ -26,12 +26,14 @@ main = do
 data Conf = Conf
   { funFile :: FilePath
   , verbose :: Bool
+  , normCheck :: Bool
   }
 
 defaultConf :: Conf
 defaultConf = Conf
   { funFile = ".history"
   , verbose = False
+  , normCheck = False
   }
 
 parseArgs :: [String] -> Conf
@@ -40,6 +42,7 @@ parseArgs args = loop args defaultConf
     loop args conf = case args of
       [] -> conf
       "-v":rest -> loop rest $ conf { verbose = True }
+      "-n":rest -> loop rest $ conf { normCheck = True }
       funFile:rest -> loop rest $ conf { funFile }
 
 start :: Conf -> HL.InputT IO ()
@@ -104,7 +107,7 @@ repl conf n env = do
 
 -- parse-eval-print
 pep :: Conf -> (String -> IO ()) -> String -> Env -> IO (Maybe Env)
-pep Conf{verbose} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
+pep Conf{verbose,normCheck} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
   case parseDef line of
 
     Left s -> do
@@ -139,21 +142,31 @@ pep Conf{verbose} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv
       let col1 = (if exceptFun value2 /= exceptFun value1 then AN.Red else AN.Cyan)
       let col2 = (if countsWorsen counts1 counts2 then AN.Red else AN.Cyan)
       printValue (col1,col2) counts2 value2
-{-
-      case exceptFun value2 of
-        Nothing -> return ()
-        Just e1 -> do
-          n <- Norm.normalize normalizationEnv exp
-          let mE2 =
-                case n of
-                  Left s -> Just (Left s)
-                  Right (EBase base,_) -> Just (Right base)
-                  --Right (ECon (VBase base),_) -> Just (Right base)
-                  Right (_,_) -> Nothing
-          when (mE2 /= Just e1) $
-            putStrLn $ col AN.Red $ "base norm failed : " -- <> show n
+
+      when verbose $ putStrLn $ "ORIG-> " <> (col AN.Magenta $ show exp)
+      Norm.normalize normalizationEnv exp >>= \case
+        Left s -> do
+          putStrLn $ col AN.Red $ "error during normalization: " <> s
           return ()
--}
+        Right (exp',Norm.Counts{Norm.beta}) -> do
+          if beta>0 then putStrLn $ col AN.Cyan $ "(beta:" <> show beta <> ")" else return ()
+          when verbose $ putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
+
+      when normCheck $
+        case exceptFun value2 of
+          Nothing -> return ()
+          Just e1 -> do
+            n <- Norm.normalize normalizationEnv exp
+            let mE2 =
+                  case n of
+                    Left s -> Just (Left s)
+                    Right (EBase base,_) -> Just (Right base)
+                    --Right (ECon (VBase base),_) -> Just (Right base)
+                    Right (_,_) -> Nothing
+            when (mE2 /= Just e1) $
+              putStrLn $ col AN.Red $ "base norm failed : " <> show n
+            return ()
+
       return Nothing
 
 
