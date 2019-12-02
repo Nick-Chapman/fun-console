@@ -26,14 +26,16 @@ main = do
 data Conf = Conf
   { funFile :: FilePath
   , verbose :: Bool
-  , normCheck :: Bool
+--  , normCheck :: Bool
+  , doNorm :: Bool
   }
 
 defaultConf :: Conf
 defaultConf = Conf
   { funFile = ".history"
   , verbose = False
-  , normCheck = False
+--  , normCheck = False
+  , doNorm = True
   }
 
 parseArgs :: [String] -> Conf
@@ -42,7 +44,8 @@ parseArgs args = loop args defaultConf
     loop args conf = case args of
       [] -> conf
       "-v":rest -> loop rest $ conf { verbose = True }
-      "-n":rest -> loop rest $ conf { normCheck = True }
+--      "-n":rest -> loop rest $ conf { normCheck = True }
+      "-nn":rest -> loop rest $ conf { doNorm = False } --"nn" == no-norm
       funFile:rest -> loop rest $ conf { funFile }
 
 start :: Conf -> HL.InputT IO ()
@@ -54,8 +57,8 @@ start conf = do
 
 
 data Env = Env
-  { evaluationEnv :: EE
-  , evaluationEnv2 :: EE
+  { evaluationEnvS :: EE --slow
+  , evaluationEnvF :: EE --fast (uses normalized expressions)
   , normalizationEnv  :: Map String (Norm.Eff Norm.Sem)
   }
 
@@ -63,8 +66,8 @@ type EE = Map String (Eval.Eff Eval.Value)
 
 env0 :: Env
 env0 = Env
-  { evaluationEnv = Eval.env0
-  , evaluationEnv2 = Eval.env0
+  { evaluationEnvS = Eval.env0
+  , evaluationEnvF = Eval.env0
   , normalizationEnv = Norm.env0
   }
 
@@ -95,7 +98,7 @@ replay conf env = \case
 -- read-eval-print-loop
 repl :: Conf -> Int -> Env -> HL.InputT IO ()
 repl conf n env = do
-  HL.getInputLine (col AN.Green $ show n <> "> ") >>= \case
+  HL.getInputLine (col AN.Magenta $ show n <> "> ") >>= \case
     Nothing -> return ()
     Just line -> do
       HL.modifyHistory (HL.addHistory line)
@@ -105,9 +108,18 @@ repl conf n env = do
         Nothing -> repl conf n env
         Just env' -> repl conf (n + 1) env'
 
+
+slowCol,fastCol,normCol :: AN.Color
+slowCol = AN.Blue
+fastCol = AN.Cyan
+normCol = AN.Green
+
 -- parse-eval-print
 pep :: Conf -> (String -> IO ()) -> String -> Env -> IO (Maybe Env)
-pep Conf{verbose,normCheck} put line env@Env{evaluationEnv,evaluationEnv2,normalizationEnv} = do
+pep Conf{verbose,doNorm} put line env@Env{evaluationEnvS,evaluationEnvF,normalizationEnv} = do
+
+  let showSlow = not doNorm || verbose
+
   case parseDef line of
 
     Left s -> do
@@ -119,30 +131,41 @@ pep Conf{verbose,normCheck} put line env@Env{evaluationEnv,evaluationEnv2,normal
 
     Right (Just (Left (Def name exp))) -> do
       put line
-      when verbose $ putStrLn $ "ORIG-> " <> (col AN.Magenta $ show exp)
-      Norm.normalize normalizationEnv exp >>= \case
-        Left s -> do
-          putStrLn $ col AN.Red $ "error during normalization: " <> s
-          return Nothing
-        Right (exp',Norm.Counts{Norm.beta}) -> do
-          if beta>0 then putStrLn $ col AN.Cyan $ "(beta:" <> show beta <> ")" else return ()
-          when verbose $ putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
-          return $ Just $ env
-            { evaluationEnv = Map.insert name (Eval.eval exp) evaluationEnv
-            , evaluationEnv2 = Map.insert name (Eval.eval exp') evaluationEnv2
-            , normalizationEnv = Map.insert name (Norm.norm exp) normalizationEnv
-            }
+      --when verbose $ putStrLn $ "ORIG-> " <> (col AN.Magenta $ show exp)
+      evaluationEnvS <- define showSlow slowCol name exp evaluationEnvS
+
+      if doNorm then
+        Norm.normalize normalizationEnv exp >>= \case
+          Left s -> do
+            putStrLn $ col AN.Red $ "error during normalization: " <> s
+            return Nothing
+          Right ((sem,expF),Norm.Counts{Norm.beta}) -> do
+            if beta>0 then putStrLn $ col normCol $ "(beta:" <> show beta <> ")" else return ()
+            when verbose $ putStrLn $ "NORM-> " <> (col AN.Green $ show expF)
+            evaluationEnvF <- define verbose fastCol name expF evaluationEnvF
+            return $ Just $ env
+              { evaluationEnvS
+              , evaluationEnvF
+              , normalizationEnv = Map.insert name (return sem) normalizationEnv
+              }
+        else
+        return $ Just $ env { evaluationEnvS }
+
+
     Right (Just (Right exp)) -> do
       put line
+      (value1,counts1) <- Eval.run evaluationEnvS (Eval.eval exp)
+      when showSlow $ printValue (slowCol,slowCol) counts1 value1
 
-      (value1,counts1) <- Eval.run evaluationEnv (Eval.eval exp)
-      when verbose $ printValue (AN.Blue,AN.Blue) counts1 value1
+      when doNorm $ do
+        (value2,counts2) <- Eval.run evaluationEnvF (Eval.eval exp)
+        let col1 = (if exceptFun value2 /= exceptFun value1 then AN.Red else fastCol)
+        let col2 = (if countsWorsen counts1 counts2 then AN.Red else fastCol)
+        printValue (col1,col2) counts2 value2
 
-      (value2,counts2) <- Eval.run evaluationEnv2 (Eval.eval exp)
-      let col1 = (if exceptFun value2 /= exceptFun value1 then AN.Red else AN.Cyan)
-      let col2 = (if countsWorsen counts1 counts2 then AN.Red else AN.Cyan)
-      printValue (col1,col2) counts2 value2
+      return ()
 
+{-
       when verbose $ putStrLn $ "ORIG-> " <> (col AN.Magenta $ show exp)
       Norm.normalize normalizationEnv exp >>= \case
         Left s -> do
@@ -151,7 +174,8 @@ pep Conf{verbose,normCheck} put line env@Env{evaluationEnv,evaluationEnv2,normal
         Right (exp',Norm.Counts{Norm.beta}) -> do
           if beta>0 then putStrLn $ col AN.Cyan $ "(beta:" <> show beta <> ")" else return ()
           when verbose $ putStrLn $ "NORM-> " <> (col AN.Green $ show exp')
-
+-}
+{-
       when normCheck $
         case exceptFun value2 of
           Nothing -> return ()
@@ -160,12 +184,12 @@ pep Conf{verbose,normCheck} put line env@Env{evaluationEnv,evaluationEnv2,normal
             let mE2 =
                   case n of
                     Left s -> Just (Left s)
-                    Right (EBase base,_) -> Just (Right base)
+                    Right ((_,EBase base),_) -> Just (Right base)
                     Right (_,_) -> Nothing
             when (mE2 /= Just e1) $
-              putStrLn $ col AN.Red $ "base norm failed : " <> show n
+              putStrLn $ col AN.Red $ "base norm failed : " -- <> show n
             return ()
-
+-}
       return Nothing
 
 
@@ -175,6 +199,12 @@ exceptFun = \case
   VBase b -> Just (Right b)
   VFun{} -> Nothing
 
+
+define :: Bool -> AN.Color -> String -> Exp -> EE -> IO EE
+define display c1 name exp env = do
+  (value,counts) <- Eval.run env (Eval.eval exp)
+  when display $ printValue (c1,c1) counts value
+  return $ Map.insert name (return value) env
 
 printValue :: (AN.Color,AN.Color) -> Eval.Counts -> Value -> IO ()
 printValue (c1,c2) counts = \case

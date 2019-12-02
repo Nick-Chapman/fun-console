@@ -59,11 +59,6 @@ share arg = do
     return v
   return $ join $ Io $ readIORef r
 
-either2error :: Either String Value -> Value
-either2error = \case
-  Left s -> VError s
-  Right v -> v
-
 ----------------------------------------------------------------------
 
 instance Functor Eff where fmap = liftM
@@ -122,15 +117,26 @@ apply = \case
     return $ VFun $ \_ arg2 -> do
       return $ VFun $ \_ arg3 -> do
         v1 <- arg1
-        v2 <- arg2
-        v3 <- arg3
+--        v2 <- arg2
+--        v3 <- arg3
         --trackPrim3 prim
-        return $ either2error $ prim3op prim v1 v2 v3
+        --e <- prim3op prim v1 arg2 arg3
+        --return $ either2error e
+        case prim3op prim v1 arg2 arg3 of
+          Left s -> return $ VError s
+          Right eff -> eff
 
   VBase base -> \_ _ -> return $ VError $ "cant apply a base-value as a function: " <> show base
   e@(VError _) -> \_ _-> return e
   VFun f -> \arg v -> do
     f arg v
+
+
+either2error :: Either String Value -> Value
+either2error = \case
+  Left s -> VError s
+  Right v -> v
+
 
 type Hopefully = Either String
 

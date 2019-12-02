@@ -16,8 +16,11 @@ import qualified Eval
 noLets :: Bool
 noLets = False -- TODO: flag?
 
-normalize :: Env -> Exp -> IO (Either String (Exp,Counts))
-normalize env exp = run env (norm exp >>= reify)
+normalize :: Env -> Exp -> IO (Either String ((Sem,Exp),Counts))
+normalize env exp = run env $ do
+  sem <- norm exp
+  exp' <- reify sem
+  return (sem,exp')
 
 type Env = Map String (Eff Sem)
 
