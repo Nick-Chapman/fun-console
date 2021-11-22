@@ -1,4 +1,6 @@
 .stack-work
-fun-console.cabal
+*.cabal
 *~
+stack.yaml.lock
 .markdown-preview.html
+.history
